@@ -1,0 +1,1424 @@
+# HG changeset patch
+# User Ben Newman <bnewman@mozilla.com>
+# Date 1257540219 28800
+# Node ID d1ab1126f33fee93b4b5526bab4084ab5387808c
+# Parent  0fe0641b2c400cd609a959f2205824cf9fc6edeb
+[mq]: jpw.diff
+
+diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
+--- a/dom/ipc/PContentProcess.ipdl
++++ b/dom/ipc/PContentProcess.ipdl
+@@ -40,17 +40,17 @@ include protocol "PIFrameEmbedding.ipdl"
+ include protocol "PTestShell.ipdl";
+ include protocol "PNecko.ipdl";
+ 
+ include "mozilla/TabTypes.h";
+ 
+ namespace mozilla {
+ namespace dom {
+ 
+-sync protocol PContentProcess
++rpc protocol PContentProcess
+ {
+     manages PIFrameEmbedding;
+     manages PTestShell;
+     manages PNecko;
+ 
+ child:
+     PIFrameEmbedding();
+ 
+diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
+--- a/dom/ipc/PIFrameEmbedding.ipdl
++++ b/dom/ipc/PIFrameEmbedding.ipdl
+@@ -34,42 +34,49 @@
+  * and other provisions required by the GPL or the LGPL. If you do not delete
+  * the provisions above, a recipient may use your version of this file under
+  * the terms of any one of the MPL, the GPL or the LGPL.
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ include protocol "PContentProcess.ipdl";
+ include protocol "PDocumentRenderer.ipdl";
++include protocol "PScriptProxy.ipdl";
++include protocol "PJSObject.ipdl";
+ 
+ include "mozilla/TabTypes.h";
+ include "TabMessageUtils.h";
++include "mozilla/js/ipc/ScriptProxyTypes.h";
+ 
+ using MagicWindowHandle;
+ using RemoteDOMEvent;
+ 
+ namespace mozilla {
+ namespace dom {
+ 
+-async protocol PIFrameEmbedding
++rpc protocol PIFrameEmbedding
+ {
+     manager PContentProcess;
+     manages PDocumentRenderer;
++    manages PScriptProxy;
+ 
+ child:
+     __delete__();
+ 
+ parent:
+     /**
+      * When child sends this message, parent should move focus to
+      * the next or previous focusable element.
+      */
+     moveFocus(bool forward);
+ 
+     sendEvent(RemoteDOMEvent aEvent);
++
++    PScriptProxy();
++
+ child:
+     createWidget(MagicWindowHandle parentWidget);
+ 
+     loadURL(nsCString uri);
+ 
+     move(PRUint32 x,
+          PRUint32 y,
+          PRUint32 width,
+diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
+--- a/dom/ipc/TabChild.cpp
++++ b/dom/ipc/TabChild.cpp
+@@ -50,16 +50,22 @@
+ #include "nsIInterfaceRequestorUtils.h"
+ #include "nsPIDOMWindow.h"
+ #include "nsIDOMWindowUtils.h"
+ #include "nsISupportsImpl.h"
+ #include "nsIWebBrowserFocus.h"
+ #include "nsIDOMEvent.h"
+ #include "nsIPrivateDOMEvent.h"
+ 
++#include "mozilla/js/ipc/ScriptProxyChild.h"
++#include "nsIDocument.h"
++#include "nsIScriptGlobalObject.h"
++#include "nsIScriptContext.h"
++#include "jscntxt.h"
++
+ #ifdef MOZ_WIDGET_GTK2
+ #include <gdk/gdkx.h>
+ #include <gtk/gtk.h>
+ #endif
+ 
+ using namespace mozilla::dom;
+ 
+ NS_IMPL_ISUPPORTS1(ContentListener, nsIDOMEventListener)
+@@ -94,16 +100,17 @@ TabChild::Init()
+ 
+   webBrowser->SetContainerWindow(this);
+ 
+   mWebNav = do_QueryInterface(webBrowser);
+   NS_ASSERTION(mWebNav, "nsWebBrowser doesn't implement nsIWebNavigation?");
+ 
+   nsCOMPtr<nsIDocShellTreeItem> docShellItem(do_QueryInterface(mWebNav));
+   docShellItem->SetItemType(nsIDocShellTreeItem::typeContentWrapper);
++
+   return NS_OK;
+ }
+ 
+ NS_IMPL_ISUPPORTS5(TabChild, nsIWebBrowserChrome, nsIWebBrowserChrome2,
+                    nsIEmbeddingSiteWindow, nsIEmbeddingSiteWindow2,
+                    nsIWebBrowserChromeFocus)
+ 
+ NS_IMETHODIMP
+@@ -267,17 +274,17 @@ TabChild::RecvcreateWidget(const MagicWi
+ #endif
+ 
+ #if !defined(XP_MACOSX)
+     baseWindow->InitWindow(win, 0, 0, 0, 0, 0);
+     baseWindow->Create();
+     baseWindow->SetVisibility(PR_TRUE);
+ #endif
+ 
+-    return true;
++    return SendPScriptProxyConstructor();
+ }
+ 
+ bool
+ TabChild::destroyWidget()
+ {
+     nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface(mWebNav);
+     if (baseWindow)
+         baseWindow->Destroy();
+@@ -300,16 +307,17 @@ TabChild::RecvloadURL(const nsCString& u
+     printf("loading %s, %d\n", uri.get(), NS_IsMainThread());
+ 
+     nsresult rv = mWebNav->LoadURI(NS_ConvertUTF8toUTF16(uri).get(),
+                                    nsIWebNavigation::LOAD_FLAGS_NONE,
+                                    NULL, NULL, NULL);
+     if (NS_FAILED(rv)) {
+         NS_WARNING("mWebNav->LoadURI failed. Eating exception, what else can I do?");
+     }
++
+     return true;
+ }
+ 
+ bool
+ TabChild::Recvmove(const PRUint32& x,
+                      const PRUint32& y,
+                      const PRUint32& width,
+                      const PRUint32& height)
+@@ -342,16 +350,48 @@ TabChild::RecvsendMouseEvent(const nsStr
+   nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
+   nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
+   NS_ENSURE_TRUE(utils, true);
+   utils->SendMouseEvent(aType, aX, aY, aButton, aClickCount, aModifiers,
+                         aIgnoreRootScrollFrame);
+   return true;
+ }
+ 
++mozilla::js::ipc::PScriptProxyChild*
++TabChild::AllocPScriptProxy()
++{
++    nsCOMPtr<nsIWebBrowser> webBrowser;
++    nsCOMPtr<nsIDOMWindow> domWindow;
++    nsCOMPtr<nsIDOMDocument> domDocument;
++    nsCOMPtr<nsIDocument> document;
++    nsCOMPtr<nsIScriptGlobalObject> global;
++    nsCOMPtr<nsIScriptContext> context;
++    JSContext* cx;
++    if ((webBrowser = do_QueryInterface(mWebNav)) &&
++        (NS_SUCCEEDED(webBrowser->GetContentDOMWindow(getter_AddRefs(domWindow)))) &&
++        (NS_SUCCEEDED(domWindow->GetDocument(getter_AddRefs(domDocument)))) &&
++        (document = do_QueryInterface(domDocument)) &&
++        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
++        (context = do_QueryInterface(global->GetContext())) &&
++        (cx = static_cast<JSContext*>(context->GetNativeContext()))) {
++
++        
++        
++        return new mozilla::js::ipc::ScriptProxyChild(cx);
++    }
++    return NULL;
++}
++
++bool
++TabChild::DeallocPScriptProxy(mozilla::js::ipc::PScriptProxyChild* actor)
++{
++    delete actor;
++    return true;
++}
++
+ mozilla::ipc::PDocumentRendererChild*
+ TabChild::AllocPDocumentRenderer(
+         const PRInt32& x,
+         const PRInt32& y,
+         const PRInt32& w,
+         const PRInt32& h,
+         const nsString& bgcolor,
+         const PRUint32& flags,
+diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
+--- a/dom/ipc/TabChild.h
++++ b/dom/ipc/TabChild.h
+@@ -44,16 +44,19 @@
+ #include "nsCOMPtr.h"
+ #include "nsAutoPtr.h"
+ #include "nsIWebBrowserChrome2.h"
+ #include "nsIEmbeddingSiteWindow2.h"
+ #include "nsIWebBrowserChromeFocus.h"
+ #include "nsIDOMEventListener.h"
+ #include "nsIDOMEventTarget.h"
+ 
++#include "mozilla/js/ipc/ScriptProxyChild.h"
++#include "mozilla/js/ipc/PScriptProxyChild.h"
++
+ namespace mozilla {
+ namespace dom {
+ 
+ class TabChild;
+ 
+ class ContentListener : public nsIDOMEventListener
+ {
+ public:
+@@ -111,16 +114,20 @@ public:
+             const PRInt32& x,
+             const PRInt32& y,
+             const PRInt32& w,
+             const PRInt32& h,
+             const nsString& bgcolor,
+             const PRUint32& flags,
+             const bool& flush);
+ 
++protected:
++    mozilla::js::ipc::PScriptProxyChild* AllocPScriptProxy();
++    bool DeallocPScriptProxy(mozilla::js::ipc::PScriptProxyChild*);
++    
+ private:
+     nsCOMPtr<nsIWebNavigation> mWebNav;
+ 
+     DISALLOW_EVIL_CONSTRUCTORS(TabChild);
+ };
+ 
+ }
+ }
+diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
+--- a/dom/ipc/TabParent.cpp
++++ b/dom/ipc/TabParent.cpp
+@@ -46,30 +46,44 @@
+ #include "nsCOMPtr.h"
+ #include "nsServiceManagerUtils.h"
+ #include "nsIDOMElement.h"
+ #include "nsEventDispatcher.h"
+ #include "nsIDOMEventTarget.h"
+ #include "nsIDOMEvent.h"
+ #include "nsIPrivateDOMEvent.h"
+ 
++#include "mozilla/js/ipc/ScriptProxyParent.h"
++#include "nsIDOMDocument.h"
++#include "nsIDocument.h"
++#include "nsIScriptGlobalObject.h"
++#include "nsIScriptContext.h"
++#include "jscntxt.h"
++
+ using mozilla::ipc::BrowserProcessSubThread;
+ using mozilla::ipc::DocumentRendererParent;
+ 
+ namespace mozilla {
+ namespace dom {
+ 
+ TabParent::TabParent()
+ {
+ }
+ 
+ TabParent::~TabParent()
+ {
+ }
+ 
++void
++TabParent::SetOwnerElement(nsIDOMElement* aElement)
++{
++    if (mFrameElement != aElement)
++        mFrameElement = aElement;
++}
++
+ bool
+ TabParent::RecvmoveFocus(const bool& aForward)
+ {
+   nsCOMPtr<nsIFocusManager> fm = do_GetService(FOCUSMANAGER_CONTRACTID);
+   if (fm) {
+     nsCOMPtr<nsIDOMElement> dummy;
+     PRUint32 type = aForward ? nsIFocusManager::MOVEFOCUS_FORWARD
+                              : nsIFocusManager::MOVEFOCUS_BACKWARD;
+@@ -109,16 +123,50 @@ TabParent::Move(PRUint32 x, PRUint32 y, 
+ }
+ 
+ void
+ TabParent::Activate()
+ {
+     Sendactivate();
+ }
+ 
++mozilla::js::ipc::PScriptProxyParent*
++TabParent::AllocPScriptProxy()
++{
++    nsCOMPtr<nsIDOMDocument> domDoc;
++    nsCOMPtr<nsIDocument> doc;
++    nsCOMPtr<nsIScriptGlobalObject> global;
++    nsCOMPtr<nsIScriptContext> context;
++    JSContext* cx;
++    if (mFrameElement &&
++        NS_SUCCEEDED(mFrameElement->GetOwnerDocument(getter_AddRefs(domDoc))) &&
++        (doc = do_QueryInterface(domDoc)) &&
++        (global = do_QueryInterface(doc->GetScriptGlobalObject())) &&
++        (context = do_QueryInterface(global->GetContext())) &&
++        (cx = static_cast<JSContext*>(context->GetNativeContext())))
++        return new mozilla::js::ipc::ScriptProxyParent(cx);
++    return NULL;
++}
++
++bool
++TabParent::RecvPScriptProxyConstructor(mozilla::js::ipc::PScriptProxyParent* actor)
++{
++    mozilla::js::ipc::PJSObjectParent* jsop;
++    if (actor->CallGetGlobal(&jsop)) {
++        
++    }
++}
++    
++bool
++TabParent::DeallocPScriptProxy(mozilla::js::ipc::PScriptProxyParent* actor)
++{
++    delete actor;
++    return true;
++}
++
+ mozilla::ipc::PDocumentRendererParent*
+ TabParent::AllocPDocumentRenderer(const PRInt32& x,
+         const PRInt32& y, const PRInt32& w, const PRInt32& h, const nsString& bgcolor,
+         const PRUint32& flags, const bool& flush)
+ {
+     return new DocumentRendererParent();
+ }
+ 
+diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
+--- a/dom/ipc/TabParent.h
++++ b/dom/ipc/TabParent.h
+@@ -37,29 +37,30 @@
+  * ***** END LICENSE BLOCK ***** */
+ 
+ #ifndef mozilla_tabs_TabParent_h
+ #define mozilla_tabs_TabParent_h
+ 
+ #include "mozilla/dom/PIFrameEmbeddingParent.h"
+ 
+ #include "mozilla/ipc/GeckoChildProcessHost.h"
++#include "mozilla/js/ipc/PScriptProxyParent.h"
+ 
+ class nsIURI;
+ class nsIDOMElement;
+ 
+ namespace mozilla {
+ namespace dom {
+ 
+ class TabParent : public PIFrameEmbeddingParent
+ {
+ public:
+     TabParent();
+     virtual ~TabParent();
+-    void SetOwnerElement(nsIDOMElement* aElement) { mFrameElement = aElement; }
++    void SetOwnerElement(nsIDOMElement* aElement);
+ 
+     virtual bool RecvmoveFocus(const bool& aForward);
+     virtual bool RecvsendEvent(const RemoteDOMEvent& aEvent);
+ 
+     void LoadURL(nsIURI* aURI);
+     void Move(PRUint32 x, PRUint32 y, PRUint32 width, PRUint32 height);
+     void Activate();
+     void SendMouseEvent(const nsAString& aType, float aX, float aY,
+@@ -70,16 +71,20 @@ public:
+             const PRInt32& x,
+             const PRInt32& y,
+             const PRInt32& w,
+             const PRInt32& h,
+             const nsString& bgcolor,
+             const PRUint32& flags,
+             const bool& flush);
+     virtual bool DeallocPDocumentRenderer(PDocumentRendererParent* actor);
++
++    mozilla::js::ipc::PScriptProxyParent* AllocPScriptProxy();
++    bool DeallocPScriptProxy(mozilla::js::ipc::PScriptProxyParent*);
++
+ protected:
+     nsIDOMElement* mFrameElement;
+ };
+ 
+ } // namespace dom
+ } // namespace mozilla
+ 
+ #endif
+diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
+--- a/dom/ipc/test.xul
++++ b/dom/ipc/test.xul
+@@ -72,23 +72,33 @@
+ 
+     function openWindow() {
+       window.open('chrome://global/content/test-ipc.xul', '_blank', 'chrome,resizable,width=800,height=800');
+     }
+     
+     function closeWindow() {
+       window.close();
+     }
++
++    function show() {
++      var child = window.jaypeedoubleyoo;
++      alert(child.location.href);
++      child.location = prompt("Where to?");
++      setTimeout(function() {
++        alert(child.location.href);
++      }, 2000);
++    }
+   </script>
+ 
+   <toolbar id="controls">
+     <toolbarbutton label="Back"/>
+     <toolbarbutton label="Forward"/>
+     <textbox onchange="loadURL(this.value)" flex="1" id="URL"/>
+     <toolbarbutton onclick="restart()" label="Recover"/>
+     <toolbarbutton onclick="randomClick()" label="random click"/>
+     <toolbarbutton onclick="openWindow()" label="open new window"/>
+     <toolbarbutton onclick="closeWindow()" label="close this window"/>
++    <toolbarbutton onclick="show()" label="JPW"/>
+   </toolbar>
+ 
+   <browser type="content" src="http://www.google.com/" flex="1" id="page" remote="true"
+            onfocus="this.QueryInterface(Components.interfaces.nsIFrameLoaderOwner).frameLoader.activateRemoteFrame();"/>
+ </window>
+diff --git a/ipc/ipdl/Makefile.in b/ipc/ipdl/Makefile.in
+--- a/ipc/ipdl/Makefile.in
++++ b/ipc/ipdl/Makefile.in
+@@ -55,16 +55,17 @@ EXPORT_LIBRARY = 1
+ ##
+ IPDLDIRS =  \
+   dom/plugins  \
+   dom/ipc  \
+   netwerk/ipc  \
+   netwerk/protocol/http/src  \
+   ipc/ipdl/test/cxx  \
+   ipc/testshell  \
++  js/src/ipc  \
+   $(NULL)
+ ##-----------------------------------------------------------------------------
+ 
+ ifdef MOZ_IPDL_TESTS
+ DIRS += test
+ endif
+ 
+ vpath %.ipdl $(topsrcdir)
+diff --git a/ipc/ipdl/test/cxx/Makefile.in b/ipc/ipdl/test/cxx/Makefile.in
+--- a/ipc/ipdl/test/cxx/Makefile.in
++++ b/ipc/ipdl/test/cxx/Makefile.in
+@@ -54,16 +54,17 @@ EXPORTS_mozilla/_ipdltest =  \
+ 
+ LIBRARY_NAME = $(MODULE)_s
+ LIBXUL_LIBRARY = 1
+ FORCE_STATIC_LIB = 1
+ EXPORT_LIBRARY = 1
+ 
+ # Please keep these organized in the order "easy"-to-"hard"
+ IPDLTESTS = \
++  TestScriptProxy \
+   TestSanity  \
+   TestLatency \
+   TestRPCRaces \
+   TestManyChildAllocs  \
+   TestDesc \
+   TestShmem \
+   TestShutdown \
+   TestArrays \
+diff --git a/ipc/ipdl/test/cxx/PTestScriptProxy.ipdl b/ipc/ipdl/test/cxx/PTestScriptProxy.ipdl
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/cxx/PTestScriptProxy.ipdl
+@@ -0,0 +1,31 @@
++
++namespace mozilla {
++namespace _ipdltest {
++
++
++protocol PTestScriptProxy {
++
++child:
++    Ping(int zero, float zeroPtFive);
++
++parent:
++    Pong(int one, float zeroPtTwoFive);
++
++both:
++    UNREACHED();
++
++
++state PING:
++    send Ping goto PONG;
++
++state PONG:
++    recv Pong goto DEAD;
++
++    // hmm ... maybe support this idiom natively?
++state DEAD:
++    send UNREACHED goto DEAD;
++};
++
++
++} // namespace mozilla
++} // namespace _ipdltest
+diff --git a/ipc/ipdl/test/cxx/TestScriptProxy.cpp b/ipc/ipdl/test/cxx/TestScriptProxy.cpp
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/cxx/TestScriptProxy.cpp
+@@ -0,0 +1,97 @@
++#include "TestScriptProxy.h"
++
++#include "nsIAppShell.h"
++
++#include "nsCOMPtr.h"
++#include "nsServiceManagerUtils.h" // do_GetService()
++#include "nsWidgetsCID.h"       // NS_APPSHELL_CID
++
++#include "IPDLUnitTests.h"      // fail etc.
++
++namespace mozilla {
++namespace _ipdltest {
++
++//-----------------------------------------------------------------------------
++// parent
++
++TestScriptProxyParent::TestScriptProxyParent()
++{
++    MOZ_COUNT_CTOR(TestScriptProxyParent);
++}
++
++TestScriptProxyParent::~TestScriptProxyParent()
++{
++    MOZ_COUNT_DTOR(TestScriptProxyParent);
++}
++
++void
++TestScriptProxyParent::Main()
++{
++    if (!SendPing(0, 0.5f))
++        fail("sending Ping");
++}
++
++
++bool
++TestScriptProxyParent::RecvPong(const int& one, const float& zeroPtTwoFive)
++{
++    if (1 != one)
++        fail("invalid argument `%d', should have been `1'", one);
++
++    if (0.25f != zeroPtTwoFive)
++        fail("invalid argument `%g', should have been `0.25'", zeroPtTwoFive);
++
++    passed("sent ping/received pong");
++
++    static NS_DEFINE_CID(kAppShellCID, NS_APPSHELL_CID);
++    nsCOMPtr<nsIAppShell> appShell (do_GetService(kAppShellCID));
++    appShell->Exit();
++
++    return true;
++}
++
++bool
++TestScriptProxyParent::RecvUNREACHED()
++{
++    fail("unreached");
++    return false;               // not reached
++}
++
++
++//-----------------------------------------------------------------------------
++// child
++
++TestScriptProxyChild::TestScriptProxyChild()
++{
++    MOZ_COUNT_CTOR(TestScriptProxyChild);
++}
++
++TestScriptProxyChild::~TestScriptProxyChild()
++{
++    MOZ_COUNT_DTOR(TestScriptProxyChild);
++}
++
++bool
++TestScriptProxyChild::RecvPing(const int& zero, const float& zeroPtFive)
++{
++    if (0 != zero)
++        fail("invalid argument `%d', should have been `0'", zero);
++
++    if (0.5f != zeroPtFive)
++        fail("invalid argument `%g', should have been `0.5'", zeroPtFive);
++
++    if (!SendPong(1, 0.25f))
++        fail("sending Pong");
++    return true;
++}
++
++bool
++TestScriptProxyChild::RecvUNREACHED()
++{
++    fail("unreached");
++    return false;               // not reached
++}
++
++
++} // namespace _ipdltest
++} // namespace mozilla
+diff --git a/ipc/ipdl/test/cxx/TestScriptProxy.h b/ipc/ipdl/test/cxx/TestScriptProxy.h
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/cxx/TestScriptProxy.h
+@@ -0,0 +1,44 @@
++#ifndef mozilla__ipdltest_TestScriptProxy_h
++#define mozilla__ipdltest_TestScriptProxy_h 1
++
++
++#include "mozilla/_ipdltest/PTestScriptProxyParent.h"
++#include "mozilla/_ipdltest/PTestScriptProxyChild.h"
++
++namespace mozilla {
++namespace _ipdltest {
++
++
++class TestScriptProxyParent :
++    public PTestScriptProxyParent
++{
++public:
++    TestScriptProxyParent();
++    virtual ~TestScriptProxyParent();
++
++    void Main();
++
++protected:    
++    virtual bool RecvPong(const int& one, const float& zeroPtTwoFive);
++    virtual bool RecvUNREACHED();
++};
++
++
++class TestScriptProxyChild :
++    public PTestScriptProxyChild
++{
++public:
++    TestScriptProxyChild();
++    virtual ~TestScriptProxyChild();
++
++protected:
++    virtual bool RecvPing(const int& zero, const float& zeroPtFive);
++    virtual bool RecvUNREACHED();
++};
++
++
++} // namespace _ipdltest
++} // namespace mozilla
++
++
++#endif // ifndef mozilla__ipdltest_TestScriptProxy_h
+diff --git a/ipc/ipdl/test/cxx/ipdl.mk b/ipc/ipdl/test/cxx/ipdl.mk
+--- a/ipc/ipdl/test/cxx/ipdl.mk
++++ b/ipc/ipdl/test/cxx/ipdl.mk
+@@ -8,9 +8,10 @@ IPDLSRCS =					\
+   PTestManyChildAllocs.ipdl			\
+   PTestManyChildAllocsSub.ipdl			\
+   PTestRPCRaces.ipdl				\
+   PTestSanity.ipdl				\
+   PTestShmem.ipdl				\
+   PTestShutdown.ipdl				\
+   PTestShutdownSub.ipdl				\
+   PTestShutdownSubsub.ipdl			\
++  PTestScriptProxy.ipdl				\
+   $(NULL)
+diff --git a/js/src/ipc/JSObjectChild.h b/js/src/ipc/JSObjectChild.h
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/JSObjectChild.h
+@@ -0,0 +1,65 @@
++#ifndef mozilla_js_ipc_JSObjectChild_h__
++#define mozilla_js_ipc_JSObjectChild_h__
++
++#include "mozilla/js/ipc/PJSObjectChild.h"
++
++using mozilla::js::ipc::JSVariant;
++
++namespace mozilla {
++namespace js {
++namespace ipc {
++    
++class JSObjectChild
++    : public PJSObjectChild
++{
++public:
++
++    JSObjectChild(JSContext* cx, JSObject* obj);
++
++    virtual ~JSObjectChild();
++
++private:
++
++    JSContext* const mContext;
++    JSObject* const mObj;
++
++    static bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
++    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
++                                     jsval* to);
++
++protected:
++
++    bool RecvAddProperty(const nsString& id);
++
++    bool AnswerGetProperty(const nsString& id,
++                           bool* ok,
++                           JSVariant* vp);
++
++    bool AnswerSetProperty(const nsString& id,
++                           const JSVariant& v,
++                           bool* ok,
++                           JSVariant* vp);
++
++    bool AnswerDelProperty(const nsString& id,
++                           bool* ok);
++
++    bool AnswerNewEnumerateInit(bool* ok,
++                                JSVariant* statep,
++                                int* idp);
++
++    bool AnswerNewEnumerateNext(const JSVariant& in_state,
++                                bool* ok,
++                                JSVariant* statep,
++                                nsString* idp);
++
++    bool RecvNewEnumerateDestroy(const JSVariant& in_state);
++
++    bool AnswerNewResolve(const nsString& id,
++                          const int& flags,
++                          bool* ok,
++                          PJSObjectChild** obj2);
++};
++
++}}}
++  
++#endif
+diff --git a/js/src/ipc/JSObjectParent.h b/js/src/ipc/JSObjectParent.h
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/JSObjectParent.h
+@@ -0,0 +1,109 @@
++#ifndef mozilla_js_ipc_JSObjectParent_h__
++#define mozilla_js_ipc_JSObjectParent_h__
++
++#include "mozilla/js/ipc/PJSObjectParent.h"
++#include "jsapi.h"
++#include "nsAutoJSValHolder.h"
++
++namespace mozilla {
++namespace js {
++namespace ipc {
++
++class JSObjectParent
++    : public PJSObjectParent
++{
++public:
++
++    JSObjectParent(JSContext* cx);
++    
++private:
++
++    JSObject* mObj;
++
++    static const JSExtendedClass sJPW_JSClass;
++    
++    static JSBool
++    JPW_AddProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
++
++    static JSBool
++    JPW_DelProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
++
++    static JSBool
++    JPW_GetProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
++    
++    static JSBool
++    JPW_SetProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
++
++    static JSBool
++    JPW_NewEnumerate(JSContext *cx, JSObject *obj, JSIterateOp enum_op,
++                     jsval *statep, jsid *idp);
++
++    static JSBool
++    JPW_NewResolve(JSContext *cx, JSObject *obj, jsval id, uintN flags,
++                   JSObject **objp);
++
++    static JSBool
++    JPW_Convert(JSContext *cx, JSObject *obj, JSType type, jsval *vp)
++    {
++        printf("Calling JPW_Convert...\n"); fflush(0);
++        if (type == JSTYPE_STRING) {
++            *vp = STRING_TO_JSVAL(JS_NewStringCopyZ(cx, "oyez"));
++            return JS_TRUE;
++        }
++        return JS_FALSE;
++    }
++
++    static void
++    JPW_Finalize(JSContext* cx, JSObject* obj);
++
++    static JSBool
++    JPW_CheckAccess(JSContext *cx, JSObject *obj, jsval id,
++                    JSAccessMode mode, jsval *vp)
++    {
++        printf("Calling JPW_CheckAccess...\n"); fflush(0);
++        return JS_TRUE;
++    }
++
++    static JSBool
++    JPW_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
++    {
++        printf("Calling JPW_HasInstance...\n"); fflush(0);
++        return JS_TRUE;
++    }
++
++    static JSBool
++    JPW_Equality(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
++    {
++        printf("Calling JPW_Equality...\n"); fflush(0);
++        return JS_TRUE;
++    }
++
++    static JSObject*
++    JPW_Iterator(JSContext *cx, JSObject *obj, JSBool keysonly)
++    {
++        printf("Calling JPW_Iterator...\n"); fflush(0);
++        return JSVAL_NULL;
++    }
++    
++    static JSBool
++    JPW_toString(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
++                 jsval *rval)
++    {
++        printf("Calling JPW_toString...\n"); fflush(0);
++        JSString *str = JS_NewStringCopyZ(cx, "[object JPW]");
++        if (!str)
++            return JS_FALSE;
++        *rval = STRING_TO_JSVAL(str);
++        return JS_TRUE;
++    }
++
++    static bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
++    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
++                                     jsval* to);
++    static bool JSObject_from_PJSObjectParent(const PJSObjectParent* from,
++                                              JSObject** to);
++};
++
++}}}
++  
++#endif
+diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/Makefile.in
+@@ -0,0 +1,70 @@
++# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is mozilla.org code.
++#
++# The Initial Developer of the Original Code is
++#   The Mozilla Foundation.
++# Portions created by the Initial Developer are Copyright (C) 2009
++# the Initial Developer. All Rights Reserved.
++#
++# Contributor(s):
++#   Ben Newman <b{enjam,newma}n@mozilla.com>
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either the GNU General Public License Version 2 or later (the "GPL"), or
++# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK *****
++
++DEPTH		= ../../..
++topsrcdir	= @top_srcdir@
++srcdir		= @srcdir@
++VPATH		= @srcdir@
++
++include $(DEPTH)/config/autoconf.mk
++
++MODULE = js
++LIBRARY_NAME = jsipc_s
++LIBXUL_LIBRARY = 1
++FORCE_STATIC_LIB = 1
++EXPORT_LIBRARY = 1
++
++EXPORTS_NAMESPACES = mozilla/js/ipc
++
++EXPORTS_mozilla/js/ipc = \
++  ScriptProxyTypes.h \
++  ScriptProxyChild.h \
++  ScriptProxyParent.h \
++  JSObjectParent.h \
++  JSObjectChild.h \
++  $(NULL)
++
++CPPSRCS = \
++  JSObjectParent.cpp \
++  JSObjectChild.cpp \
++  $(NULL)
++
++include $(topsrcdir)/config/config.mk
++include $(topsrcdir)/ipc/chromium/chromium-config.mk
++include $(topsrcdir)/config/rules.mk
++
++DEFINES += -DBIN_SUFFIX='"$(BIN_SUFFIX)"'
+diff --git a/js/src/ipc/PJSObject.ipdl b/js/src/ipc/PJSObject.ipdl
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/PJSObject.ipdl
+@@ -0,0 +1,50 @@
++include protocol "PScriptProxy.ipdl";
++
++include "PScriptProxy.h"; // XXX why is this needed?
++
++using mozilla::js::ipc::JSVariant;
++
++namespace mozilla {
++namespace js {
++namespace ipc {
++
++rpc protocol PJSObject
++{
++    manager PScriptProxy;
++    
++child:
++    __delete__(); // unroot
++
++    async AddProperty(nsString id);
++
++    rpc GetProperty(nsString id)
++        returns (bool ok,
++                 JSVariant vp);
++
++    rpc SetProperty(nsString id,
++                    JSVariant v)
++        returns (bool ok,
++                 JSVariant vp);
++
++    rpc DelProperty(nsString id)
++        returns (bool ok);
++
++    rpc NewEnumerateInit()
++        returns (bool ok,
++                 JSVariant statep,
++                 int idp);
++
++    rpc NewEnumerateNext(JSVariant in_state)
++        returns (bool ok,
++                 JSVariant statep,
++                 nsString idp);
++
++    async NewEnumerateDestroy(JSVariant in_state);
++
++    rpc NewResolve(nsString id,
++                   int flags)
++        returns (bool ok,
++                 PJSObject obj2);
++};
++
++}}}
+diff --git a/js/src/ipc/PScriptProxy.ipdl b/js/src/ipc/PScriptProxy.ipdl
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/PScriptProxy.ipdl
+@@ -0,0 +1,76 @@
++/* -*- Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 8 -*- */
++/* vim: set sw=4 ts=8 et tw=80 ft=cpp : */
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ *   The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2009
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++include protocol "PIFrameEmbedding.ipdl";
++include protocol "PJSObject.ipdl";
++
++include "mozilla/js/ipc/ScriptProxyTypes.h";
++
++using mozilla::js::ipc::void_t;
++using mozilla::js::ipc::null_t;
++
++namespace mozilla {
++namespace js {
++namespace ipc {
++
++union JSVariant {
++    void_t;
++    nullable PJSObject;
++    nsString;
++    int;
++    double;
++    bool;
++    null_t;
++};
++
++rpc protocol PScriptProxy
++{
++    manager PIFrameEmbedding;
++    manages PJSObject;
++child:
++    rpc GetGlobal()
++        returns (PJSObject global);
++parent:
++    __delete__();
++    PJSObject();
++};
++
++} // namespace ipc
++} // namespace js
++} // mozilla
+diff --git a/js/src/ipc/ScriptProxyChild.h b/js/src/ipc/ScriptProxyChild.h
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/ScriptProxyChild.h
+@@ -0,0 +1,84 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* vim: set sw=4 ts=8 et tw=80 : */
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ *   The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2009
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#ifndef mozilla_js_ipc_ScriptProxyChild_h__
++#define mozilla_js_ipc_ScriptProxyChild_h__
++
++#include "mozilla/js/ipc/PScriptProxyChild.h"
++#include "mozilla/js/ipc/JSObjectChild.h"
++
++#include "jsapi.h"
++
++namespace mozilla {
++namespace js {
++namespace ipc {
++
++class ScriptProxyChild
++    : public PScriptProxyChild
++{
++public:
++
++    ScriptProxyChild(JSContext* cx) : mContext(cx) {}
++
++private:
++    
++    JSContext* const mContext;
++    
++protected:
++
++    PJSObjectChild* AllocPJSObject() { return NULL; }
++    bool DeallocPJSObject(PJSObjectChild* actor)
++    {
++        delete actor;
++        return true;
++    }
++
++    bool AnswerGetGlobal(mozilla::js::ipc::PJSObjectChild** out_actor)
++    {
++        *out_actor = new JSObjectChild(mContext, JS_GetGlobalObject(mContext));
++        return true;
++    }
++
++};
++
++} // namespace ipc
++} // namespace js
++} // namespace mozilla
++
++#endif
+diff --git a/js/src/ipc/ScriptProxyParent.h b/js/src/ipc/ScriptProxyParent.h
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/ScriptProxyParent.h
+@@ -0,0 +1,72 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* vim: set sw=4 ts=8 et tw=80 : */
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ *   The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2009
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#ifndef mozilla_js_ipc_ScriptProxyParent_h__
++#define mozilla_js_ipc_ScriptProxyParent_h__
++
++#include "mozilla/js/ipc/PScriptProxyParent.h"
++#include "mozilla/js/ipc/JSObjectParent.h"
++
++#include "jsapi.h"
++
++namespace mozilla {
++namespace js {
++namespace ipc {
++    
++class ScriptProxyParent
++    : public PScriptProxyParent
++{   
++public:
++
++    ScriptProxyParent(JSContext* cx) : mContext(cx) {}
++    
++private:
++
++    JSContext* const mContext;
++
++    PJSObjectParent* AllocPJSObject() { return NULL; }
++    bool DeallocPJSObject(PJSObjectParent*);
++
++};
++
++} // namespace ipc
++} // namespace js
++} // namespace mozilla
++
++#endif
+diff --git a/js/src/ipc/ScriptProxyTypes.h b/js/src/ipc/ScriptProxyTypes.h
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/ScriptProxyTypes.h
+@@ -0,0 +1,35 @@
++#ifndef mozilla_js_ipc_ScriptProxyTypes_h__
++#define mozilla_js_ipc_ScriptProxyTypes_h__
++
++#include "jsapi.h"
++
++namespace mozilla {
++namespace js {
++namespace ipc {
++
++struct void_t {};
++struct null_t {};
++    
++template <typename P>
++struct JPWSingleton
++{
++    static void Write(IPC::Message*, const P&) {}
++    static bool Read(const IPC::Message*, void**, P*) { return true; }
++};
++    
++} // namespace ipc
++} // namespace js
++} // namespace mozilla
++
++namespace IPC {
++
++using mozilla::js::ipc::JPWSingleton;
++using mozilla::js::ipc::null_t;
++using mozilla::js::ipc::void_t;
++
++template <> struct ParamTraits<void_t> : public JPWSingleton<void_t> {};
++template <> struct ParamTraits<null_t> : public JPWSingleton<null_t> {};
++ 
++}
++
++#endif
+diff --git a/js/src/ipc/ipdl.mk b/js/src/ipc/ipdl.mk
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/ipdl.mk
+@@ -0,0 +1,41 @@
++# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is mozilla.org code.
++#
++# The Initial Developer of the Original Code is
++#   The Mozilla Foundation.
++# Portions created by the Initial Developer are Copyright (C) 2009
++# the Initial Developer. All Rights Reserved.
++#
++# Contributor(s):
++#   Ben Newman <b{enjam,newma}n@mozilla.com>
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either the GNU General Public License Version 2 or later (the "GPL"), or
++# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK *****
++
++IPDLSRCS = \
++  PScriptProxy.ipdl \
++  PJSObject.ipdl \
++  $(NULL)
+diff --git a/toolkit/library/libxul-config.mk b/toolkit/library/libxul-config.mk
+--- a/toolkit/library/libxul-config.mk
++++ b/toolkit/library/libxul-config.mk
+@@ -88,16 +88,17 @@ RCFLAGS += -i $(topsrcdir)/widget/src/os
+ endif
+ 
+ LOCAL_INCLUDES += -I$(topsrcdir)/widget/src/os2
+ endif
+ 
+ # dependent libraries
+ ifdef MOZ_IPC
+ STATIC_LIBS += \
++  jsipc_s \
+   domipc_s \
+   domplugins_s \
+   mozipc_s \
+   mozipdlgen_s \
+   chromium_s \
+   ipcshell_s \
+   gfxipc_s \
+   $(NULL)
+diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
+--- a/toolkit/toolkit-makefiles.sh
++++ b/toolkit/toolkit-makefiles.sh
+@@ -203,16 +203,20 @@ MAKEFILES_xpconnect="
+   js/src/xpconnect/loader/Makefile
+   js/src/xpconnect/tests/Makefile
+   js/src/xpconnect/tests/components/Makefile
+   js/src/xpconnect/tests/idl/Makefile
+   js/src/xpconnect/tools/Makefile
+   js/src/xpconnect/tools/idl/Makefile
+ "
+ 
++MAKEFILES_jsipc="
++  js/src/ipc/Makefile
++"
++
+ MAKEFILES_jsdebugger="
+   js/jsd/Makefile
+   js/jsd/idl/Makefile
+ "
+ 
+ MAKEFILES_jsctypes="
+   js/ctypes/Makefile
+ "
+@@ -851,16 +855,17 @@ add_makefiles "
+   $MAKEFILES_db
+   $MAKEFILES_dom
+   $MAKEFILES_editor
+   $MAKEFILES_xmlparser
+   $MAKEFILES_gfx
+   $MAKEFILES_htmlparser
+   $MAKEFILES_intl
+   $MAKEFILES_xpconnect
++  $MAKEFILES_jsipc
+   $MAKEFILES_jsdebugger
+   $MAKEFILES_jsctypes
+   $MAKEFILES_content
+   $MAKEFILES_layout
+   $MAKEFILES_libimg
+   $MAKEFILES_libjar
+   $MAKEFILES_libreg
+   $MAKEFILES_libpref
+diff --git a/toolkit/toolkit-tiers.mk b/toolkit/toolkit-tiers.mk
+--- a/toolkit/toolkit-tiers.mk
++++ b/toolkit/toolkit-tiers.mk
+@@ -76,17 +76,17 @@ ifeq ($(OS_ARCH),WINCE)
+ tier_external_dirs += modules/lib7z
+ endif
+ 
+ #
+ # tier "gecko" - core components
+ #
+ 
+ ifdef MOZ_IPC
+-tier_gecko_dirs += ipc
++tier_gecko_dirs += ipc js/src/ipc
+ endif
+ 
+ tier_gecko_dirs += \
+ 		$(tier_necko_dirs) \
+ 		js/src/xpconnect \
+ 		js/ctypes \
+ 		intl/chardet \
+ 		$(NULL)
