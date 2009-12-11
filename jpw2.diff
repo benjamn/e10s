@@ -690,6 +690,225 @@ diff --git a/ipc/ipdl/test/cxx/ipdl.mk b/ipc/ipdl/test/cxx/ipdl.mk
    PTestShutdownSubsub.ipdl			\
 +  PTestScriptProxy.ipdl				\
    $(NULL)
+diff --git a/js/src/ipc/JSObjectChild.cpp b/js/src/ipc/JSObjectChild.cpp
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/JSObjectChild.cpp
+@@ -0,0 +1,214 @@
++#include "mozilla/js/ipc/JSObjectChild.h"
++
++namespace mozilla {
++namespace js {
++namespace ipc {
++
++JSObjectChild::JSObjectChild(JSContext* cx, JSObject* obj)
++    : mContext(cx)
++    , mObj(obj)
++{
++    JS_AddNamedRoot(mContext, (void*)&mObj,
++                    "mozilla::js::ipc::JSObjectChild-rooted JSObject*");
++}
++
++JSObjectChild::~JSObjectChild()
++{
++    JS_RemoveRoot(mContext, (void*)&mObj);
++}
++
++/*static*/ bool
++JSObjectChild::jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to)
++{
++    switch (JS_TypeOfValue(cx, from)) {
++    case JSTYPE_VOID:
++        *to = void_t();
++        return true;
++    case JSTYPE_OBJECT:
++        // fall through
++    case JSTYPE_FUNCTION:
++        {
++            JSObject* obj;
++            if (JS_ValueToObject(cx, from, &obj)) {
++                // TODO get-or-create-ify this:
++                *to = new JSObjectChild(cx, obj);
++                return true;
++            }
++            return false;
++        }
++    case JSTYPE_STRING:
++        *to = nsString(JS_GetStringChars(JSVAL_TO_STRING(from)));
++        return true;
++    case JSTYPE_NUMBER:
++        if (JSVAL_IS_INT(from))
++            *to = JSVAL_TO_INT(from);
++        else if (JSVAL_IS_DOUBLE(from))
++            *to = JSVAL_TO_DOUBLE(from);
++        else return false;
++        return true;
++    case JSTYPE_BOOLEAN:
++        *to = JSVAL_TO_BOOLEAN(from);
++        return true;
++    case JSTYPE_NULL:
++        *to = null_t();
++        return true;
++    case JSTYPE_XML:
++        // fall through
++    default:
++        return false;
++    }
++}
++
++/*static*/ bool
++JSObjectChild::jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
++                                    jsval* to)
++{
++    switch (from.type()) {
++    case JSVariant::Tvoid_t:
++        *to = JSVAL_VOID;
++        return true;
++    case JSVariant::TPJSObjectChild:
++        {
++            const JSObjectChild* jsoc =
++                static_cast<const JSObjectChild*>(from.get_PJSObjectChild());
++            *to = jsoc ? OBJECT_TO_JSVAL(jsoc->mObj) : JSVAL_NULL;
++            return true;
++        }
++    case JSVariant::TnsString:
++        *to = STRING_TO_JSVAL(JS_NewUCStringCopyN(cx,
++                                                  from.get_nsString().BeginReading(),
++                                                  from.get_nsString().Length()));
++        return true;
++    case JSVariant::Tint:
++        *to = INT_TO_JSVAL(from.get_int());
++        return true;
++    case JSVariant::Tdouble:
++        return !!JS_NewDoubleValue(cx, from.get_double(), to);
++    case JSVariant::Tbool:
++        *to = BOOLEAN_TO_JSVAL(from.get_bool());
++        return true;
++    case JSVariant::Tnull_t:
++        *to = JSVAL_NULL;
++        return true;
++    default:
++        return false;
++    }
++}
++
++static bool
++jsid_from_nsString(JSContext* cx, const nsString& from, jsid* to)
++{
++    JSString* str = JS_NewUCStringCopyN(cx, from.BeginReading(), from.Length());
++    return ::JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
++}
++
++bool
++JSObjectChild::RecvAddProperty(const nsString& id)
++{
++    jsid interned_id;
++
++    JSAutoRequest request(mContext);
++
++    if (!jsid_from_nsString(mContext, id, &interned_id))
++        return false;
++    
++    JS_DefinePropertyById(mContext, mObj, interned_id,
++                          JSVAL_ZERO, NULL, NULL, 0);
++    return true;
++}
++
++bool
++JSObjectChild::AnswerGetProperty(const nsString& id,
++                                 bool* ok,
++                                 JSVariant* vp)
++{
++    jsid interned_id;
++    jsval val;
++
++    *ok = false;
++
++    JSAutoRequest request(mContext);
++
++    if (!jsid_from_nsString(mContext, id, &interned_id))
++        return false;
++
++    *ok = JS_GetPropertyById(mContext, mObj, interned_id, &val);
++
++    return jsval_to_JSVariant(mContext, val, vp);
++}
++
++bool
++JSObjectChild::AnswerSetProperty(const nsString& id,
++                                 const JSVariant& v,
++                                 bool* ok,
++                                 JSVariant* vp)
++{
++    jsid interned_id;
++    jsval val;
++
++    *ok = false;
++    *vp = v;
++
++    JSAutoRequest request(mContext);
++
++    if (!jsid_from_nsString(mContext, id, &interned_id) ||
++        !jsval_from_JSVariant(mContext, v, &val))
++        return false;
++
++    *ok = JS_SetPropertyById(mContext, mObj, interned_id, &val);
++
++    return jsval_to_JSVariant(mContext, val, vp);
++}
++
++bool
++JSObjectChild::AnswerDelProperty(const nsString& id,
++                                 bool* ok)
++{
++    jsid interned_id;
++
++    *ok = false;
++
++    JSAutoRequest request(mContext);
++
++    if (!jsid_from_nsString(mContext, id, &interned_id))
++        return false;
++
++    *ok = JS_DeletePropertyById(mContext, mObj, interned_id);
++    
++    return true;
++}
++
++bool
++JSObjectChild::AnswerNewEnumerateInit(bool* ok,
++                                      JSVariant* statep,
++                                      int* idp)
++{
++    return false;
++}
++
++bool
++JSObjectChild::AnswerNewEnumerateNext(const JSVariant& in_state,
++                                      bool* ok,
++                                      JSVariant* statep,
++                                      nsString* idp)
++{
++    return false;
++}
++    
++bool
++JSObjectChild::RecvNewEnumerateDestroy(const JSVariant& in_state)
++{
++    return false;
++}
++    
++bool
++JSObjectChild::AnswerNewResolve(const nsString& id,
++                                const int& flags,
++                                bool* ok,
++                                PJSObjectChild** obj2)
++{
++    *ok = true;
++    return true;
++}
++    
++}}}
 diff --git a/js/src/ipc/JSObjectChild.h b/js/src/ipc/JSObjectChild.h
 new file mode 100644
 --- /dev/null
@@ -760,6 +979,328 @@ new file mode 100644
 +}}}
 +  
 +#endif
+diff --git a/js/src/ipc/JSObjectParent.cpp b/js/src/ipc/JSObjectParent.cpp
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/JSObjectParent.cpp
+@@ -0,0 +1,317 @@
++#include "mozilla/js/ipc/JSObjectParent.h"
++
++namespace mozilla {
++namespace js {
++namespace ipc {
++
++namespace {
++    static const PRUint32 sFlagsSlot = 0, sWrappedObjSlot = 1;
++    static const PRUint32 sNumSlots = 2;
++    typedef JSObjectParent _;
++}
++
++const JSExtendedClass _::sJPW_JSClass = {
++    // JSClass (JSExtendedClass.base) initialization
++    { "JSInterProcessWrapper",
++      JSCLASS_NEW_RESOLVE | JSCLASS_NEW_ENUMERATE |
++      JSCLASS_IS_EXTENDED | JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
++      _::JPW_AddProperty, _::JPW_DelProperty,
++      _::JPW_GetProperty, _::JPW_SetProperty,
++      (JSEnumerateOp)_::JPW_NewEnumerate,
++      (JSResolveOp)_::JPW_NewResolve,
++      _::JPW_Convert,     _::JPW_Finalize,
++      nsnull,             _::JPW_CheckAccess,
++      nsnull,             nsnull,
++      nsnull,             _::JPW_HasInstance,
++      nsnull,             nsnull
++    },
++
++    // JSExtendedClass initialization
++    _::JPW_Equality,
++    nsnull,             // outerObject
++    nsnull,             // innerObject
++    _::JPW_Iterator,
++    nsnull,             // wrappedObject
++    JSCLASS_NO_RESERVED_MEMBERS
++};
++
++JSObjectParent::JSObjectParent(JSContext* cx)
++{
++    JSAutoRequest request(cx);
++    JSClass* clasp = const_cast<JSClass*>(&_::sJPW_JSClass.base);
++    if ((mObj = JS_NewObjectWithGivenProto(cx, clasp, NULL, NULL))) {
++        JS_SetReservedSlot(cx, mObj, sWrappedObjSlot, PRIVATE_TO_JSVAL(this));
++        JS_SetReservedSlot(cx, mObj, sFlagsSlot, JSVAL_ZERO);
++    }
++}
++
++static JSObjectParent*
++Unwrap(JSContext* cx, JSObject* obj)
++{
++    jsval info;
++    if (!JS_GetReservedSlot(cx, obj, sWrappedObjSlot, &info))
++        return NULL;
++    return static_cast<JSObjectParent*>(JSVAL_TO_PRIVATE(info));
++}
++
++/*static*/ bool
++JSObjectParent::jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to)
++{
++    switch (JS_TypeOfValue(cx, from)) {
++    case JSTYPE_VOID:
++        *to = void_t();
++        return true;
++    case JSTYPE_OBJECT:
++    case JSTYPE_FUNCTION:
++        return false; // TODO allow iff JPW
++    case JSTYPE_STRING:
++        *to = nsString(JS_GetStringChars(JSVAL_TO_STRING(from)));
++        return true;
++    case JSTYPE_NUMBER:
++        if (JSVAL_IS_INT(from))
++            *to = JSVAL_TO_INT(from);
++        else if (JSVAL_IS_DOUBLE(from))
++            *to = JSVAL_TO_DOUBLE(from);
++        else return false;
++        return true;
++    case JSTYPE_BOOLEAN:
++        *to = JSVAL_TO_BOOLEAN(from);
++        return true;
++    case JSTYPE_NULL:
++        *to = null_t();
++    case JSTYPE_XML:
++    default:
++        return false;
++    }
++}
++
++/*static*/ bool
++JSObjectParent::jsval_from_JSVariant(JSContext* cx, const JSVariant& from, jsval* to)
++{
++    switch (from.type()) {
++    case JSVariant::Tvoid_t:
++        *to = JSVAL_VOID;
++        return true;
++    case JSVariant::TPJSObjectParent:
++        {
++            JSObject* obj;
++            if (!JSObject_from_PJSObjectParent(from.get_PJSObjectParent(), &obj))
++                return false;
++            *to = OBJECT_TO_JSVAL(obj);
++            return true;
++        }
++    case JSVariant::TnsString:
++        *to = STRING_TO_JSVAL(JS_NewUCStringCopyZ(cx, from.get_nsString().BeginReading()));
++        return true;
++    case JSVariant::Tint:
++        *to = INT_TO_JSVAL(from.get_int());
++        return true;
++    case JSVariant::Tdouble:
++        return !!JS_NewDoubleValue(cx, from.get_double(), to);
++    case JSVariant::Tbool:
++        *to = BOOLEAN_TO_JSVAL(from.get_bool());
++        return true;
++    case JSVariant::Tnull_t:
++        *to = JSVAL_NULL;
++        return true;
++    default:
++        return false;
++    }
++}
++
++/*static*/ bool
++JSObjectParent::JSObject_from_PJSObjectParent(const PJSObjectParent* from,
++                                              JSObject** to)
++{
++    const JSObjectParent* jsop =
++        static_cast<const JSObjectParent*>(from);
++    *to = jsop ? jsop->mObj : JSVAL_TO_OBJECT(JSVAL_NULL);
++    return true;
++}
++    
++static bool
++jsid_from_int(JSContext* cx, int from, jsid* to)
++{
++    jsval v = INT_TO_JSVAL(from);
++    return JS_ValueToId(cx, v, to);
++}
++
++static bool
++jsid_from_nsString(JSContext* cx, const nsString& from, jsid* to)
++{
++    JSString* str = JS_NewUCStringCopyZ(cx, from.BeginReading());
++    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
++}
++
++static bool
++jsval_to_nsString(JSContext* cx, jsval from, nsString* to)
++{
++    JSString* str;
++    if (JSVAL_IS_STRING(from) &&
++        (str = JS_ValueToString(cx, from))) {
++        *to = JS_GetStringChars(str);
++        return true;
++    }
++    return false;
++}
++
++/*static*/ JSBool
++JSObjectParent::JPW_AddProperty(JSContext *cx, JSObject *obj, jsval id,
++                                jsval *vp)
++{
++    printf("Calling JPW_AddProperty...\n"); fflush(0);
++
++    JSObjectParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;
++
++    nsString in_id;    
++
++    if (!jsval_to_nsString(cx, id, &in_id))
++        return JS_FALSE;
++
++    return self->SendAddProperty(in_id);
++}    
++
++/*static*/ JSBool
++JSObjectParent::JPW_GetProperty(JSContext *cx, JSObject *obj, jsval id,
++                                jsval *vp)
++{
++    printf("Calling JPW_GetProperty...\n"); fflush(0);
++
++    JSObjectParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;
++
++    nsString in_id;
++
++    if (!jsval_to_nsString(cx, id, &in_id))
++        return JS_FALSE;
++
++    bool out_ok;
++    JSVariant out_v;
++    
++    return (self->CallGetProperty(in_id,
++                                  &out_ok, &out_v) &&
++            out_ok &&
++            self->jsval_from_JSVariant(cx, out_v, vp));
++}
++
++/*static*/ JSBool
++JSObjectParent::JPW_SetProperty(JSContext *cx, JSObject *obj, jsval id,
++                                jsval *vp)
++{
++    printf("Calling JPW_SetProperty...\n"); fflush(0);
++
++    JSObjectParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;
++
++    nsString in_id;
++    JSVariant in_v;
++
++    if (!jsval_to_nsString(cx, id, &in_id) ||
++        !self->jsval_to_JSVariant(cx, *vp, &in_v))
++        return JS_FALSE;
++    
++    bool out_ok;
++    JSVariant out_v;
++
++    return (self->CallSetProperty(in_id, in_v,
++                                  &out_ok, &out_v) &&
++            out_ok &&
++            self->jsval_from_JSVariant(cx, out_v, vp));
++}    
++    
++/*static*/ JSBool
++JSObjectParent::JPW_DelProperty(JSContext *cx, JSObject *obj, jsval id,
++                                jsval *vp)
++{
++    printf("Calling JPW_DelProperty...\n"); fflush(0);
++
++    JSObjectParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;
++
++    nsString in_id;
++
++    if (!jsval_to_nsString(cx, id, &in_id))
++        return JS_FALSE;
++
++    bool out_ok;
++    
++    return (self->CallDelProperty(in_id,
++                                  &out_ok) &&
++            out_ok);
++}
++
++/*static*/ JSBool
++JSObjectParent::JPW_NewEnumerate(JSContext *cx, JSObject *obj,
++                                 JSIterateOp enum_op, jsval *statep, jsid *idp)
++{
++    printf("Calling JPW_NewEnumerate...\n"); fflush(0);
++
++    JSObjectParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;    
++    
++    JSVariant in_state;
++
++    if ((enum_op == JSENUMERATE_NEXT ||
++         enum_op == JSENUMERATE_DESTROY) &&
++        !self->jsval_to_JSVariant(cx, *statep, &in_state))
++        return JS_FALSE;
++
++    bool out_ok;
++    JSVariant out_state;
++
++    switch (enum_op) {
++    case JSENUMERATE_INIT: {
++        int out_id;
++        return (self->CallNewEnumerateInit(&out_ok, &out_state, &out_id) &&
++                out_ok &&
++                self->jsval_from_JSVariant(cx, out_state, statep) &&
++                jsid_from_int(cx, out_id, idp));
++    }
++    case JSENUMERATE_NEXT: {
++        nsString out_id;
++        return (self->CallNewEnumerateNext(in_state,
++                                           &out_ok, &out_state, &out_id) &&
++                out_ok,
++                self->jsval_from_JSVariant(cx, out_state, statep) &&
++                jsid_from_nsString(cx, out_id, idp));
++    }
++    case JSENUMERATE_DESTROY:
++        return self->SendNewEnumerateDestroy(in_state);
++    }
++
++    return JS_FALSE;
++}
++    
++/*static*/ JSBool
++JSObjectParent::JPW_NewResolve(JSContext *cx, JSObject *obj, jsval id,
++                               uintN flags, JSObject **objp)
++{
++    printf("Calling JPW_NewResolve (%s)...\n",
++           JS_GetTypeName(cx, JS_TypeOfValue(cx, id)));
++    fflush(0);
++
++    JSObjectParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;
++
++    nsString in_id;
++
++    if (!jsval_to_nsString(cx, id, &in_id))
++        return JS_FALSE;
++
++    bool out_ok;
++    PJSObjectParent* out_obj;
++    
++    return (self->CallNewResolve(in_id, flags,
++                                 &out_ok, &out_obj) &&
++            out_ok &&
++            JSObject_from_PJSObjectParent(out_obj, objp));
++}
++    
++}}}
 diff --git a/js/src/ipc/JSObjectParent.h b/js/src/ipc/JSObjectParent.h
 new file mode 100644
 --- /dev/null
