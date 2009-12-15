@@ -315,7 +315,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -342,16 +352,45 @@ TabChild::RecvsendMouseEvent(const nsStr
+@@ -342,16 +352,63 @@ TabChild::RecvsendMouseEvent(const nsStr
    nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
@@ -327,6 +327,23 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +mozilla::js::ipc::PScriptProxyChild*
 +TabChild::AllocPScriptProxy()
 +{
++    nsCOMPtr<nsIDOMDocument> domDocument;
++    nsCOMPtr<nsIDocument> document;
++    nsCOMPtr<nsIScriptGlobalObject> global;
++    nsCOMPtr<nsIScriptContext> context;
++    JSContext* cx;
++
++    if (NS_SUCCEEDED(mWebNav->GetDocument(getter_AddRefs(domDocument))) &&
++        (document = do_QueryInterface(domDocument)) &&
++        //(global = static_cast<nsDocument*>(document.get())->GetScopeObject()) &&
++        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
++        (context = do_QueryInterface(global->GetContext())) &&
++        (cx = static_cast<JSContext*>(context->GetNativeContext())))
++        return mScriptProxy = new mozilla::js::ipc::ScriptProxyChild(cx);
++
++    return NULL;
++
++#if 0
 +    nsCOMPtr<nsIWebBrowser> webBrowser;
 +    nsCOMPtr<nsIDOMWindow> domWindow;
 +    nsCOMPtr<nsIDOMDocument> domDocument;
@@ -344,6 +361,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +        return mScriptProxy = new mozilla::js::ipc::ScriptProxyChild(cx);
 +    }
 +    return NULL;
++#endif
 +}
 +
 +bool
