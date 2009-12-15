@@ -1,8 +1,8 @@
 # HG changeset patch
 # User Ben Newman <bnewman@mozilla.com>
 # Date 1257540219 28800
-# Node ID 894948a3b1f19a81b8adbcb7a3184029de818261
-# Parent  d7bbac64b5f68d0adbd50700908bf965fc16ef9a
+# Node ID a82312ef8ffd49051c380264ad70c05b5948c643
+# Parent  69674697dbce469745f1baaccb507cca27afd1e8
 [mq]: jpw.diff
 
 diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFrameLoader.idl
@@ -136,7 +136,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
 +
 +  if ((xpc = nsContentUtils::XPConnect()) &&
 +      (stack = nsContentUtils::ThreadJSContextStack()) &&
-+      NS_SUCCEEDED(stack->Peek(&cx)) &&
++      NS_SUCCEEDED(stack->Peek(&cx)) && cx &&
 +      NS_SUCCEEDED(xpc->VariantToJS(cx, JS_GetScopeChain(cx), where, &v)) &&
 +      JS_ValueToObject(cx, v, &obj) &&
 +      (str = JS_NewUCStringCopyN(cx, property.BeginReading(),
@@ -276,25 +276,6 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                     nsIWebBrowserChromeFocus)
  
  NS_IMETHODIMP
-@@ -267,17 +274,17 @@ TabChild::RecvcreateWidget(const MagicWi
- #endif
- 
- #if !defined(XP_MACOSX)
-     baseWindow->InitWindow(win, 0, 0, 0, 0, 0);
-     baseWindow->Create();
-     baseWindow->SetVisibility(PR_TRUE);
- #endif
- 
--    return true;
-+    return SendPScriptProxyConstructor();
- }
- 
- bool
- TabChild::destroyWidget()
- {
-     nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface(mWebNav);
-     if (baseWindow)
-         baseWindow->Destroy();
 @@ -300,16 +307,19 @@ TabChild::RecvloadURL(const nsCString& u
      printf("loading %s, %d\n", uri.get(), NS_IsMainThread());
  
@@ -305,7 +286,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
          NS_WARNING("mWebNav->LoadURI failed. Eating exception, what else can I do?");
      }
 +
-+    mScriptProxy->SendPJSObjectConstructor(true);
++    SendPScriptProxyConstructor()->SendPJSObjectConstructor(true);
 +    
      return true;
  }
@@ -315,7 +296,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -342,16 +352,63 @@ TabChild::RecvsendMouseEvent(const nsStr
+@@ -342,16 +352,94 @@ TabChild::RecvsendMouseEvent(const nsStr
    nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
@@ -324,9 +305,40 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
    return true;
  }
  
++#include "nsIScriptGlobalObjectOwner.h"
++
 +mozilla::js::ipc::PScriptProxyChild*
 +TabChild::AllocPScriptProxy()
 +{
++#if 0
++    nsCOMPtr<nsIDocShell> docShell;
++    nsCOMPtr<nsIScriptGlobalObjectOwner> owner;
++    nsCOMPtr<nsIScriptGlobalObject> global;
++    nsCOMPtr<nsIScriptContext> context;
++    JSContext* cx;
++
++    if ((docShell = do_QueryInterface(mWebNav)) &&
++        (owner = do_QueryInterface(mWebNav)) &&
++        (global = owner->GetScriptGlobalObject()) &&
++        (context = do_QueryInterface(global->GetContext())) &&
++        (cx = static_cast<JSContext*>(context->GetNativeContext())))
++        return mScriptProxy = new mozilla::js::ipc::ScriptProxyChild(cx);
++
++    return NULL;
++#endif
++    
++#if 0
++    nsCOMPtr<nsIJSRuntimeService>
++        rtsvc(do_GetService("@mozilla.org/js/xpc/RuntimeService;1"));
++    JSRuntime* rt;
++    JSContext* cx;
++    if (NS_SUCCEEDED(rtsvc->GetRuntime(&rt)) &&
++        (cx = JS_NewContext(rt, 1<<10)))
++        return mScriptProxy = new mozilla::js::ipc::ScriptProxyChild(cx);
++    return NULL;
++#endif
++    
++#if 1
 +    nsCOMPtr<nsIDOMDocument> domDocument;
 +    nsCOMPtr<nsIDocument> document;
 +    nsCOMPtr<nsIScriptGlobalObject> global;
@@ -335,13 +347,13 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +
 +    if (NS_SUCCEEDED(mWebNav->GetDocument(getter_AddRefs(domDocument))) &&
 +        (document = do_QueryInterface(domDocument)) &&
-+        //(global = static_cast<nsDocument*>(document.get())->GetScopeObject()) &&
 +        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
 +        (context = do_QueryInterface(global->GetContext())) &&
 +        (cx = static_cast<JSContext*>(context->GetNativeContext())))
 +        return mScriptProxy = new mozilla::js::ipc::ScriptProxyChild(cx);
 +
 +    return NULL;
++#endif
 +
 +#if 0
 +    nsCOMPtr<nsIWebBrowser> webBrowser;

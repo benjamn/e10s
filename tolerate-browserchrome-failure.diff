@@ -1,0 +1,49 @@
+# HG changeset patch
+# User Ben Newman <bnewman@mozilla.com>
+# Date 1260921233 28800
+# Node ID 52d6cca836c4397efeb549b69c2dba7d610410bb
+# Parent  a82312ef8ffd49051c380264ad70c05b5948c643
+[mq]: tolerate-browserchrome-failure.diff
+
+diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
+--- a/docshell/base/nsDocShell.cpp
++++ b/docshell/base/nsDocShell.cpp
+@@ -9911,26 +9911,28 @@ nsDocShell::EnsureScriptEnvironment()
+     // re-enter this method, we'll infinitely loop...
+     nsDebugAutoBoolTrueSetter boolSetter(&mInEnsureScriptEnv);
+ #endif
+ 
+     nsCOMPtr<nsIDOMScriptObjectFactory> factory =
+         do_GetService(kDOMScriptObjectFactoryCID);
+     NS_ENSURE_TRUE(factory, NS_ERROR_FAILURE);
+ 
+-    nsCOMPtr<nsIWebBrowserChrome> browserChrome(do_GetInterface(mTreeOwner));
+-    NS_ENSURE_TRUE(browserChrome, NS_ERROR_NOT_AVAILABLE);
+-
+-    PRUint32 chromeFlags;
+-    browserChrome->GetChromeFlags(&chromeFlags);
+-
+-    PRBool isModalContentWindow =
+-        (chromeFlags & nsIWebBrowserChrome::CHROME_MODAL) &&
+-        !(chromeFlags & nsIWebBrowserChrome::CHROME_OPENAS_CHROME);
+-
++    PRBool isModalContentWindow = PR_FALSE;
++    {
++        nsCOMPtr<nsIWebBrowserChrome> browserChrome(do_GetInterface(mTreeOwner));
++        if (browserChrome) {
++            PRUint32 chromeFlags;
++            browserChrome->GetChromeFlags(&chromeFlags);
++            
++            isModalContentWindow =
++                (chromeFlags & nsIWebBrowserChrome::CHROME_MODAL) &&
++                !(chromeFlags & nsIWebBrowserChrome::CHROME_OPENAS_CHROME);
++        }
++    }
+     // If our window is modal and we're not opened as chrome, make
+     // this window a modal content window.
+     factory->NewScriptGlobalObject(mItemType == typeChrome,
+                                    isModalContentWindow,
+                                    getter_AddRefs(mScriptGlobal));
+     NS_ENSURE_TRUE(mScriptGlobal, NS_ERROR_FAILURE);
+ 
+     nsCOMPtr<nsPIDOMWindow> win(do_QueryInterface(mScriptGlobal));
