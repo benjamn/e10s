@@ -1,10 +1,161 @@
 # HG changeset patch
 # User Ben Newman <bnewman@mozilla.com>
 # Date 1257540219 28800
-# Node ID d1ab1126f33fee93b4b5526bab4084ab5387808c
-# Parent  0fe0641b2c400cd609a959f2205824cf9fc6edeb
+# Node ID 894948a3b1f19a81b8adbcb7a3184029de818261
+# Parent  d7bbac64b5f68d0adbd50700908bf965fc16ef9a
 [mq]: jpw.diff
 
+diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFrameLoader.idl
+--- a/content/base/public/nsIFrameLoader.idl
++++ b/content/base/public/nsIFrameLoader.idl
+@@ -34,19 +34,29 @@
+  * and other provisions required by the GPL or the LGPL. If you do not delete
+  * the provisions above, a recipient may use your version of this file under
+  * the terms of any one of the MPL, the GPL or the LGPL.
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ #include "nsISupports.idl"
+ 
++%{C++
++#include "jsapi.h"
++struct JSContext;
++struct JSObject;
++%}
++
++[ptr] native JSContextPtr(JSContext);
++[ptr] native JSObjectPtr(JSObject);
++
+ interface nsIDocShell;
+ interface nsIURI;
+ interface nsIFrame;
++interface nsIVariant;
+ 
+ [scriptable, uuid(8f94788d-ec69-4220-971c-0fd68d47b80f)]
+ interface nsIFrameLoader : nsISupports
+ {
+   /**
+    * Get the docshell from the frame loader.
+    */
+   readonly attribute nsIDocShell docShell;
+@@ -99,16 +109,22 @@ interface nsIFrameLoader : nsISupports
+                                   in long aClickCount,
+                                   in long aModifiers,
+                                   [optional] in boolean aIgnoreRootScrollFrame);
+ 
+   /**
+    * Activate event forwarding from client (remote frame) to parent.
+    */
+   void activateFrameEvent(in AString aType, in boolean capture);
++
++  /**
++   * Define a property on |where| named |property| whose value is a JSObject
++   * corresponding to the global object of the child frame.
++   */
++  void attachChildGlobal(in nsIVariant where, in AString property);
+ };
+ 
+ native alreadyAddRefed_nsFrameLoader(already_AddRefed<nsFrameLoader>);
+ 
+ [scriptable, uuid(8f3b12a0-35ae-4e0d-9152-8e0d7e49d446)]
+ interface nsIFrameLoaderOwner : nsISupports
+ {
+   /**
+diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader.cpp
+--- a/content/base/src/nsFrameLoader.cpp
++++ b/content/base/src/nsFrameLoader.cpp
+@@ -1,9 +1,9 @@
+-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
++/* -*- Mode: C++; tab-width: 1; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+ /* vim: set ts=2 sw=2 et tw=78: */
+ /* ***** BEGIN LICENSE BLOCK *****
+  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
+  *
+  * The contents of this file are subject to the Mozilla Public License Version
+  * 1.1 (the "License"); you may not use this file except in compliance with
+  * the License. You may obtain a copy of the License at
+  * http://www.mozilla.org/MPL/
+@@ -83,16 +83,17 @@
+ #include "nsEventDispatcher.h"
+ #include "nsISHistory.h"
+ #include "nsISHistoryInternal.h"
+ #include "nsIDOMNSHTMLDocument.h"
+ #include "nsLayoutUtils.h"
+ 
+ #include "nsIURI.h"
+ #include "nsIURL.h"
++
+ #include "nsNetUtil.h"
+ 
+ #include "nsGkAtoms.h"
+ #include "nsINameSpaceManager.h"
+ 
+ #include "nsThreadUtils.h"
+ #include "nsICSSStyleSheet.h"
+ #include "nsIContentViewer.h"
+@@ -108,16 +109,19 @@
+ #ifdef MOZ_IPC
+ #include "ContentProcessParent.h"
+ #include "TabParent.h"
+ 
+ using namespace mozilla;
+ using namespace mozilla::dom;
+ #endif
+ 
++#include "nsIXPConnect.h"
++#include "nsIJSContextStack.h"
++
+ class nsAsyncDocShellDestroyer : public nsRunnable
+ {
+ public:
+   nsAsyncDocShellDestroyer(nsIDocShell* aDocShell)
+     : mDocShell(aDocShell)
+   {
+   }
+ 
+@@ -1508,16 +1512,42 @@ nsFrameLoader::ActivateFrameEvent(const 
+   if (mChildProcess) {
+     mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
+     return NS_OK;
+   }
+ #endif
+   return NS_ERROR_FAILURE;
+ }
+ 
++NS_IMETHODIMP
++nsFrameLoader::AttachChildGlobal(nsIVariant* where,
++                                 const nsAString& property)
++{
++  nsIXPConnect* xpc;
++  nsIThreadJSContextStack* stack;
++  JSContext* cx;
++  jsval v;
++  JSObject* obj;
++  JSString* str;
++  jsid interned_id;
++
++  if ((xpc = nsContentUtils::XPConnect()) &&
++      (stack = nsContentUtils::ThreadJSContextStack()) &&
++      NS_SUCCEEDED(stack->Peek(&cx)) &&
++      NS_SUCCEEDED(xpc->VariantToJS(cx, JS_GetScopeChain(cx), where, &v)) &&
++      JS_ValueToObject(cx, v, &obj) &&
++      (str = JS_NewUCStringCopyN(cx, property.BeginReading(),
++                                 property.Length())) &&
++      JS_ValueToId(cx, STRING_TO_JSVAL(str), &interned_id) &&
++      mChildProcess->AttachGlobal(cx, obj, interned_id))
++    return NS_OK;
++
++  return NS_ERROR_FAILURE;
++}
++
+ nsresult
+ nsFrameLoader::CreateStaticClone(nsIFrameLoader* aDest)
+ {
+   nsFrameLoader* dest = static_cast<nsFrameLoader*>(aDest);
+   dest->MaybeCreateDocShell();
+   NS_ENSURE_STATE(dest->mDocShell);
+ 
+   nsCOMPtr<nsIDOMDocument> dummy = do_GetInterface(dest->mDocShell);
 diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
 --- a/dom/ipc/PContentProcess.ipdl
 +++ b/dom/ipc/PContentProcess.ipdl
@@ -144,7 +295,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
      nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface(mWebNav);
      if (baseWindow)
          baseWindow->Destroy();
-@@ -300,16 +307,17 @@ TabChild::RecvloadURL(const nsCString& u
+@@ -300,16 +307,19 @@ TabChild::RecvloadURL(const nsCString& u
      printf("loading %s, %d\n", uri.get(), NS_IsMainThread());
  
      nsresult rv = mWebNav->LoadURI(NS_ConvertUTF8toUTF16(uri).get(),
@@ -154,6 +305,8 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
          NS_WARNING("mWebNav->LoadURI failed. Eating exception, what else can I do?");
      }
 +
++    mScriptProxy->SendPJSObjectConstructor(true);
++    
      return true;
  }
  
@@ -162,7 +315,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -342,16 +350,48 @@ TabChild::RecvsendMouseEvent(const nsStr
+@@ -342,16 +352,45 @@ TabChild::RecvsendMouseEvent(const nsStr
    nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
@@ -188,10 +341,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
 +        (context = do_QueryInterface(global->GetContext())) &&
 +        (cx = static_cast<JSContext*>(context->GetNativeContext()))) {
-+
-+        
-+        
-+        return new mozilla::js::ipc::ScriptProxyChild(cx);
++        return mScriptProxy = new mozilla::js::ipc::ScriptProxyChild(cx);
 +    }
 +    return NULL;
 +}
@@ -234,7 +384,7 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
  class ContentListener : public nsIDOMEventListener
  {
  public:
-@@ -111,16 +114,20 @@ public:
+@@ -111,18 +114,23 @@ public:
              const PRInt32& x,
              const PRInt32& y,
              const PRInt32& w,
@@ -249,12 +399,15 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
 +    
  private:
      nsCOMPtr<nsIWebNavigation> mWebNav;
++    mozilla::js::ipc::ScriptProxyChild* mScriptProxy;
  
      DISALLOW_EVIL_CONSTRUCTORS(TabChild);
  };
  
  }
  }
+ 
+ #endif // mozilla_tabs_TabChild_h
 diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 --- a/dom/ipc/TabParent.cpp
 +++ b/dom/ipc/TabParent.cpp
@@ -303,7 +456,7 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
      nsCOMPtr<nsIDOMElement> dummy;
      PRUint32 type = aForward ? nsIFocusManager::MOVEFOCUS_FORWARD
                               : nsIFocusManager::MOVEFOCUS_BACKWARD;
-@@ -109,16 +123,50 @@ TabParent::Move(PRUint32 x, PRUint32 y, 
+@@ -109,16 +123,45 @@ TabParent::Move(PRUint32 x, PRUint32 y, 
  }
  
  void
@@ -315,6 +468,8 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 +mozilla::js::ipc::PScriptProxyParent*
 +TabParent::AllocPScriptProxy()
 +{
++    return mScriptProxy = new mozilla::js::ipc::ScriptProxyParent();
++#if 0    
 +    nsCOMPtr<nsIDOMDocument> domDoc;
 +    nsCOMPtr<nsIDocument> doc;
 +    nsCOMPtr<nsIScriptGlobalObject> global;
@@ -325,20 +480,13 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 +        (doc = do_QueryInterface(domDoc)) &&
 +        (global = do_QueryInterface(doc->GetScriptGlobalObject())) &&
 +        (context = do_QueryInterface(global->GetContext())) &&
-+        (cx = static_cast<JSContext*>(context->GetNativeContext())))
-+        return new mozilla::js::ipc::ScriptProxyParent(cx);
-+    return NULL;
++        (cx = static_cast<JSContext*>(context->GetNativeContext()))) {
++        mScriptProxy = new mozilla::js::ipc::ScriptProxyParent(cx);
++    }
++    return mScriptProxy;
++#endif
 +}
 +
-+bool
-+TabParent::RecvPScriptProxyConstructor(mozilla::js::ipc::PScriptProxyParent* actor)
-+{
-+    mozilla::js::ipc::PJSObjectParent* jsop;
-+    if (actor->CallGetGlobal(&jsop)) {
-+        
-+    }
-+}
-+    
 +bool
 +TabParent::DeallocPScriptProxy(mozilla::js::ipc::PScriptProxyParent* actor)
 +{
@@ -357,7 +505,7 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
 --- a/dom/ipc/TabParent.h
 +++ b/dom/ipc/TabParent.h
-@@ -37,29 +37,30 @@
+@@ -37,29 +37,32 @@
   * ***** END LICENSE BLOCK ***** */
  
  #ifndef mozilla_tabs_TabParent_h
@@ -366,7 +514,9 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
  #include "mozilla/dom/PIFrameEmbeddingParent.h"
  
  #include "mozilla/ipc/GeckoChildProcessHost.h"
-+#include "mozilla/js/ipc/PScriptProxyParent.h"
++#include "mozilla/js/ipc/ScriptProxyParent.h"
++
++#include "jsapi.h"
  
  class nsIURI;
  class nsIDOMElement;
@@ -389,7 +539,7 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
      void Move(PRUint32 x, PRUint32 y, PRUint32 width, PRUint32 height);
      void Activate();
      void SendMouseEvent(const nsAString& aType, float aX, float aY,
-@@ -70,16 +71,20 @@ public:
+@@ -70,16 +73,26 @@ public:
              const PRInt32& x,
              const PRInt32& y,
              const PRInt32& w,
@@ -402,8 +552,14 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
 +    mozilla::js::ipc::PScriptProxyParent* AllocPScriptProxy();
 +    bool DeallocPScriptProxy(mozilla::js::ipc::PScriptProxyParent*);
 +
++    bool AttachGlobal(JSContext* cx, JSObject* to, jsid id) {
++        return (mScriptProxy &&
++                mScriptProxy->AttachGlobal(cx, to, id));
++    }       
++
  protected:
      nsIDOMElement* mFrameElement;
++    mozilla::js::ipc::ScriptProxyParent* mScriptProxy;
  };
  
  } // namespace dom
@@ -413,7 +569,7 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
 diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 --- a/dom/ipc/test.xul
 +++ b/dom/ipc/test.xul
-@@ -72,23 +72,33 @@
+@@ -72,23 +72,41 @@
  
      function openWindow() {
        window.open('chrome://global/content/test-ipc.xul', '_blank', 'chrome,resizable,width=800,height=800');
@@ -423,8 +579,16 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
        window.close();
      }
 +
++    function getChildGlobal() {
++      var page = document.getElementById("page");
++      if (!("contentGlobalObject" in page))
++        page.QueryInterface(Components.interfaces.nsIFrameLoaderOwner)
++            .frameLoader.attachChildGlobal(page, "contentGlobalObject");
++      return page.contentGlobalObject;
++    }
++    
 +    function show() {
-+      var child = window.jaypeedoubleyoo;
++      var child = getChildGlobal();
 +      alert(child.location.href);
 +      child.location = prompt("Where to?");
 +      setTimeout(function() {
@@ -694,7 +858,8 @@ diff --git a/js/src/ipc/JSObjectChild.cpp b/js/src/ipc/JSObjectChild.cpp
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/JSObjectChild.cpp
-@@ -0,0 +1,214 @@
+@@ -0,0 +1,223 @@
++#include "mozilla/js/ipc/ScriptProxyChild.h"
 +#include "mozilla/js/ipc/JSObjectChild.h"
 +
 +namespace mozilla {
@@ -714,7 +879,7 @@ new file mode 100644
 +    JS_RemoveRoot(mContext, (void*)&mObj);
 +}
 +
-+/*static*/ bool
++bool
 +JSObjectChild::jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to)
 +{
 +    switch (JS_TypeOfValue(cx, from)) {
@@ -728,7 +893,8 @@ new file mode 100644
 +            JSObject* obj;
 +            if (JS_ValueToObject(cx, from, &obj)) {
 +                // TODO get-or-create-ify this:
-+                *to = new JSObjectChild(cx, obj);
++                *to = Manager()->SendPJSObjectConstructor(Manager()->AllocPJSObject(obj),
++                                                          false);
 +                return true;
 +            }
 +            return false;
@@ -792,6 +958,12 @@ new file mode 100644
 +    }
 +}
 +
++ScriptProxyChild*
++JSObjectChild::Manager()
++{
++    return static_cast<ScriptProxyChild*>(PJSObjectChild::Manager());
++}
++    
 +static bool
 +jsid_from_nsString(JSContext* cx, const nsString& from, jsid* to)
 +{
@@ -905,6 +1077,7 @@ new file mode 100644
 +                                PJSObjectChild** obj2)
 +{
 +    *ok = true;
++    *obj2 = this;
 +    return true;
 +}
 +    
@@ -913,7 +1086,7 @@ diff --git a/js/src/ipc/JSObjectChild.h b/js/src/ipc/JSObjectChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/JSObjectChild.h
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,68 @@
 +#ifndef mozilla_js_ipc_JSObjectChild_h__
 +#define mozilla_js_ipc_JSObjectChild_h__
 +
@@ -924,7 +1097,9 @@ new file mode 100644
 +namespace mozilla {
 +namespace js {
 +namespace ipc {
-+    
++
++class ScriptProxyChild;
++  
 +class JSObjectChild
 +    : public PJSObjectChild
 +{
@@ -932,16 +1107,17 @@ new file mode 100644
 +
 +    JSObjectChild(JSContext* cx, JSObject* obj);
 +
-+    virtual ~JSObjectChild();
-+
++    ~JSObjectChild();
++    
 +private:
 +
 +    JSContext* const mContext;
 +    JSObject* const mObj;
 +
-+    static bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
++    bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
 +    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
 +                                     jsval* to);
++    ScriptProxyChild* Manager();
 +
 +protected:
 +
@@ -983,7 +1159,7 @@ diff --git a/js/src/ipc/JSObjectParent.cpp b/js/src/ipc/JSObjectParent.cpp
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/JSObjectParent.cpp
-@@ -0,0 +1,317 @@
+@@ -0,0 +1,331 @@
 +#include "mozilla/js/ipc/JSObjectParent.h"
 +
 +namespace mozilla {
@@ -1021,14 +1197,17 @@ new file mode 100644
 +    JSCLASS_NO_RESERVED_MEMBERS
 +};
 +
-+JSObjectParent::JSObjectParent(JSContext* cx)
++JSObject*
++JSObjectParent::GetJSObject(JSContext* cx) const
 +{
-+    JSAutoRequest request(cx);
 +    JSClass* clasp = const_cast<JSClass*>(&_::sJPW_JSClass.base);
-+    if ((mObj = JS_NewObjectWithGivenProto(cx, clasp, NULL, NULL))) {
++    if (!mObj) {
++        JSAutoRequest request(cx);
++        mObj = JS_NewObjectWithGivenProto(cx, clasp, NULL, NULL);
 +        JS_SetReservedSlot(cx, mObj, sWrappedObjSlot, PRIVATE_TO_JSVAL(this));
 +        JS_SetReservedSlot(cx, mObj, sFlagsSlot, JSVAL_ZERO);
 +    }
++    return mObj;
 +}
 +
 +static JSObjectParent*
@@ -1081,7 +1260,7 @@ new file mode 100644
 +    case JSVariant::TPJSObjectParent:
 +        {
 +            JSObject* obj;
-+            if (!JSObject_from_PJSObjectParent(from.get_PJSObjectParent(), &obj))
++            if (!JSObject_from_PJSObjectParent(cx, from.get_PJSObjectParent(), &obj))
 +                return false;
 +            *to = OBJECT_TO_JSVAL(obj);
 +            return true;
@@ -1106,12 +1285,15 @@ new file mode 100644
 +}
 +
 +/*static*/ bool
-+JSObjectParent::JSObject_from_PJSObjectParent(const PJSObjectParent* from,
++JSObjectParent::JSObject_from_PJSObjectParent(JSContext* cx,
++                                              const PJSObjectParent* from,
 +                                              JSObject** to)
 +{
 +    const JSObjectParent* jsop =
 +        static_cast<const JSObjectParent*>(from);
-+    *to = jsop ? jsop->mObj : JSVAL_TO_OBJECT(JSVAL_NULL);
++    *to = jsop
++        ? jsop->GetJSObject(cx)
++        : JSVAL_TO_OBJECT(JSVAL_NULL);
 +    return true;
 +}
 +    
@@ -1297,15 +1479,23 @@ new file mode 100644
 +    return (self->CallNewResolve(in_id, flags,
 +                                 &out_ok, &out_obj) &&
 +            out_ok &&
-+            JSObject_from_PJSObjectParent(out_obj, objp));
++            JSObject_from_PJSObjectParent(cx, out_obj, objp));
 +}
-+    
++
++/*static*/ void
++JSObjectParent::JPW_Finalize(JSContext* cx, JSObject* obj)
++{
++    JSObjectParent* self = Unwrap(cx, obj);
++    if (self)
++        self->Send__delete__(self);
++}
++
 +}}}
 diff --git a/js/src/ipc/JSObjectParent.h b/js/src/ipc/JSObjectParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/JSObjectParent.h
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,114 @@
 +#ifndef mozilla_js_ipc_JSObjectParent_h__
 +#define mozilla_js_ipc_JSObjectParent_h__
 +
@@ -1322,11 +1512,15 @@ new file mode 100644
 +{
 +public:
 +
-+    JSObjectParent(JSContext* cx);
++    JSObject* GetJSObject(JSContext* cx) const;
++
++    jsval GetJSVal(JSContext* cx) const {
++        return OBJECT_TO_JSVAL(GetJSObject(cx));
++    }
 +    
 +private:
 +
-+    JSObject* mObj;
++    mutable JSObject* mObj;
 +
 +    static const JSExtendedClass sJPW_JSClass;
 +    
@@ -1408,7 +1602,8 @@ new file mode 100644
 +    static bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
 +    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
 +                                     jsval* to);
-+    static bool JSObject_from_PJSObjectParent(const PJSObjectParent* from,
++    static bool JSObject_from_PJSObjectParent(JSContext* cx,
++                                              const PJSObjectParent* from,
 +                                              JSObject** to);
 +};
 +
@@ -1549,7 +1744,7 @@ diff --git a/js/src/ipc/PScriptProxy.ipdl b/js/src/ipc/PScriptProxy.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PScriptProxy.ipdl
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,73 @@
 +/* -*- Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 8 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 ft=cpp : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1615,12 +1810,9 @@ new file mode 100644
 +{
 +    manager PIFrameEmbedding;
 +    manages PJSObject;
-+child:
-+    rpc GetGlobal()
-+        returns (PJSObject global);
 +parent:
 +    __delete__();
-+    PJSObject();
++    sync PJSObject(bool global);
 +};
 +
 +} // namespace ipc
@@ -1630,7 +1822,7 @@ diff --git a/js/src/ipc/ScriptProxyChild.h b/js/src/ipc/ScriptProxyChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ScriptProxyChild.h
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,88 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1689,22 +1881,26 @@ new file mode 100644
 +
 +    ScriptProxyChild(JSContext* cx) : mContext(cx) {}
 +
++    PJSObjectChild* AllocPJSObject(JSObject* obj) {
++        JSAutoRequest request(mContext);
++        return new JSObjectChild(mContext, obj);
++    }
++    
 +private:
 +    
 +    JSContext* const mContext;
 +    
 +protected:
 +
-+    PJSObjectChild* AllocPJSObject() { return NULL; }
++    PJSObjectChild* AllocPJSObject(const bool& global) {
++        NS_ASSERTION(global, "Telling lies to parent?");
++        JSAutoRequest request(mContext);
++        return new JSObjectChild(mContext, JS_GetGlobalObject(mContext));
++    }
++
 +    bool DeallocPJSObject(PJSObjectChild* actor)
 +    {
 +        delete actor;
-+        return true;
-+    }
-+
-+    bool AnswerGetGlobal(mozilla::js::ipc::PJSObjectChild** out_actor)
-+    {
-+        *out_actor = new JSObjectChild(mContext, JS_GetGlobalObject(mContext));
 +        return true;
 +    }
 +
@@ -1719,7 +1915,7 @@ diff --git a/js/src/ipc/ScriptProxyParent.h b/js/src/ipc/ScriptProxyParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ScriptProxyParent.h
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,87 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1776,14 +1972,29 @@ new file mode 100644
 +{   
 +public:
 +
-+    ScriptProxyParent(JSContext* cx) : mContext(cx) {}
++    bool AttachGlobal(JSContext* cx, JSObject* to, jsid id) {
++        return (mGlobal &&
++                JS_DefinePropertyById(cx, to, id, mGlobal->GetJSVal(cx), NULL,
++                                      NULL, 0));
++    }
 +    
 +private:
 +
-+    JSContext* const mContext;
++    JSObjectParent* mGlobal;
 +
-+    PJSObjectParent* AllocPJSObject() { return NULL; }
-+    bool DeallocPJSObject(PJSObjectParent*);
++    PJSObjectParent* AllocPJSObject(const bool& global)
++    {
++        JSObjectParent* jsop = new JSObjectParent();
++        if (global)
++            mGlobal = jsop;
++        return jsop;
++    }
++
++    bool DeallocPJSObject(PJSObjectParent* actor) {
++        // TODO what if actor == mGlobal?
++        delete actor;
++        return true;
++    }
 +
 +};
 +
@@ -1923,7 +2134,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
  MAKEFILES_jsctypes="
    js/ctypes/Makefile
  "
-@@ -851,16 +855,17 @@ add_makefiles "
+@@ -852,16 +856,17 @@ add_makefiles "
    $MAKEFILES_db
    $MAKEFILES_dom
    $MAKEFILES_editor
