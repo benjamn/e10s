@@ -1,0 +1,48 @@
+# HG changeset patch
+# User Ben Newman <bnewman@mozilla.com>
+# Date 1260391386 28800
+# Node ID b19e323a0472cdd7c64b10abda9a2467363e380d
+# Parent  f9c0cc34ebe85229eaf87b2003659eac1e91669c
+[mq]: default-paramtraits-delegation.diff
+
+diff --git a/ipc/chromium/src/chrome/common/ipc_message_utils.h b/ipc/chromium/src/chrome/common/ipc_message_utils.h
+--- a/ipc/chromium/src/chrome/common/ipc_message_utils.h
++++ b/ipc/chromium/src/chrome/common/ipc_message_utils.h
+@@ -112,17 +112,36 @@ class MessageIterator {
+  private:
+   const Message& msg_;
+   mutable void* iter_;
+ };
+ 
+ //-----------------------------------------------------------------------------
+ // ParamTraits specializations, etc.
+ 
+-template <class P> struct ParamTraits {};
++// In the generic case, i.e. when no ParamTraits specialization exists for P,
++// simply delegate Write, Read, and Log to the parameter itself.
++//
++// This delegation technique is useful when serialization requires access to
++// private methods and/or data members of the parameter object.  Privacy could
++// be circumvented by declaring ParamTraits<T> a friend of T, but separating
++// serialization logic from data structure implementation may be undesirable.
++template <class P> struct ParamTraits {
++  typedef P param_type;
++  static void Write(Message* m, const param_type& p) {
++    p.Write(m);
++  }
++  static bool Read(const Message* m, void** iter, param_type* r) {
++    return r->Read(m, iter);
++  }
++  // Implementing param_type::Log is necessary only if it will be used.
++  static void Log(const param_type& p, std::wstring* l) {
++    p.Log(l);
++  }
++};
+ 
+ template <class P>
+ static inline void WriteParam(Message* m, const P& p) {
+   ParamTraits<P>::Write(m, p);
+ }
+ 
+ template <class P>
+ static inline bool WARN_UNUSED_RESULT ReadParam(const Message* m, void** iter,
