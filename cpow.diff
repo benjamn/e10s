@@ -149,7 +149,7 @@ diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
  
  include protocol "PContentProcess.ipdl";
  include protocol "PDocumentRenderer.ipdl";
-+include protocol "PObjectWrapperLiason.ipdl";
++include protocol "PObjectWrapperLiaison.ipdl";
 +include protocol "PObjectWrapper.ipdl";
  
  include "mozilla/TabTypes.h";
@@ -167,7 +167,7 @@ diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
  {
      manager PContentProcess;
      manages PDocumentRenderer;
-+    manages PObjectWrapperLiason;
++    manages PObjectWrapperLiaison;
  
  child:
      __delete__();
@@ -181,7 +181,7 @@ diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
  
      sendEvent(RemoteDOMEvent aEvent);
 +
-+    PObjectWrapperLiason();
++    PObjectWrapperLiaison();
 +
  child:
      createWidget(MagicWindowHandle parentWidget);
@@ -203,7 +203,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  #include "nsIDOMEvent.h"
  #include "nsIPrivateDOMEvent.h"
  
-+#include "mozilla/js/ipc/ObjectWrapperLiasonChild.h"
++#include "mozilla/js/ipc/ObjectWrapperLiaisonChild.h"
 +#include "nsIDocument.h"
 +#include "nsIScriptGlobalObject.h"
 +#include "nsIScriptContext.h"
@@ -227,7 +227,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
          NS_WARNING("mWebNav->LoadURI failed. Eating exception, what else can I do?");
      }
 +
-+    SendPObjectWrapperLiasonConstructor()->SendPObjectWrapperConstructor(true);
++    SendPObjectWrapperLiaisonConstructor()->SendPObjectWrapperConstructor(true);
 +    
      return true;
  }
@@ -248,8 +248,8 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  
 +#include "nsIScriptGlobalObjectOwner.h"
 +
-+mozilla::js::ipc::PObjectWrapperLiasonChild*
-+TabChild::AllocPObjectWrapperLiason()
++mozilla::js::ipc::PObjectWrapperLiaisonChild*
++TabChild::AllocPObjectWrapperLiaison()
 +{
 +#if 0
 +    nsCOMPtr<nsIDocShell> docShell;
@@ -263,7 +263,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +        (global = owner->GetScriptGlobalObject()) &&
 +        (context = do_QueryInterface(global->GetContext())) &&
 +        (cx = static_cast<JSContext*>(context->GetNativeContext())))
-+        return mObjectWrapperLiason = new mozilla::js::ipc::ObjectWrapperLiasonChild(cx);
++        return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonChild(cx);
 +
 +    return NULL;
 +#endif
@@ -275,7 +275,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +    JSContext* cx;
 +    if (NS_SUCCEEDED(rtsvc->GetRuntime(&rt)) &&
 +        (cx = JS_NewContext(rt, 1<<10)))
-+        return mObjectWrapperLiason = new mozilla::js::ipc::ObjectWrapperLiasonChild(cx);
++        return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonChild(cx);
 +    return NULL;
 +#endif
 +    
@@ -291,7 +291,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
 +        (context = do_QueryInterface(global->GetContext())) &&
 +        (cx = static_cast<JSContext*>(context->GetNativeContext())))
-+        return mObjectWrapperLiason = new mozilla::js::ipc::ObjectWrapperLiasonChild(cx);
++        return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonChild(cx);
 +
 +    return NULL;
 +#endif
@@ -311,14 +311,14 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
 +        (context = do_QueryInterface(global->GetContext())) &&
 +        (cx = static_cast<JSContext*>(context->GetNativeContext()))) {
-+        return mObjectWrapperLiason = new mozilla::js::ipc::ObjectWrapperLiasonChild(cx);
++        return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonChild(cx);
 +    }
 +    return NULL;
 +#endif
 +}
 +
 +bool
-+TabChild::DeallocPObjectWrapperLiason(mozilla::js::ipc::PObjectWrapperLiasonChild* actor)
++TabChild::DeallocPObjectWrapperLiaison(mozilla::js::ipc::PObjectWrapperLiaisonChild* actor)
 +{
 +    delete actor;
 +    return true;
@@ -344,8 +344,8 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
  #include "nsIDOMEventListener.h"
  #include "nsIDOMEventTarget.h"
  
-+#include "mozilla/js/ipc/ObjectWrapperLiasonChild.h"
-+#include "mozilla/js/ipc/PObjectWrapperLiasonChild.h"
++#include "mozilla/js/ipc/ObjectWrapperLiaisonChild.h"
++#include "mozilla/js/ipc/PObjectWrapperLiaisonChild.h"
 +
  namespace mozilla {
  namespace dom {
@@ -365,12 +365,12 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
              const bool& flush);
  
 +protected:
-+    mozilla::js::ipc::PObjectWrapperLiasonChild* AllocPObjectWrapperLiason();
-+    bool DeallocPObjectWrapperLiason(mozilla::js::ipc::PObjectWrapperLiasonChild*);
++    mozilla::js::ipc::PObjectWrapperLiaisonChild* AllocPObjectWrapperLiaison();
++    bool DeallocPObjectWrapperLiaison(mozilla::js::ipc::PObjectWrapperLiaisonChild*);
 +    
  private:
      nsCOMPtr<nsIWebNavigation> mWebNav;
-+    mozilla::js::ipc::ObjectWrapperLiasonChild* mObjectWrapperLiason;
++    mozilla::js::ipc::ObjectWrapperLiaisonChild* mObjectWrapperLiaison;
  
      DISALLOW_EVIL_CONSTRUCTORS(TabChild);
  };
@@ -391,7 +391,7 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
  #include "nsIDOMEvent.h"
  #include "nsIPrivateDOMEvent.h"
  
-+#include "mozilla/js/ipc/ObjectWrapperLiasonParent.h"
++#include "mozilla/js/ipc/ObjectWrapperLiaisonParent.h"
 +
  using mozilla::ipc::BrowserProcessSubThread;
  using mozilla::ipc::DocumentRendererParent;
@@ -431,14 +431,14 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
      Sendactivate();
  }
  
-+mozilla::js::ipc::PObjectWrapperLiasonParent*
-+TabParent::AllocPObjectWrapperLiason()
++mozilla::js::ipc::PObjectWrapperLiaisonParent*
++TabParent::AllocPObjectWrapperLiaison()
 +{
-+    return mObjectWrapperLiason = new mozilla::js::ipc::ObjectWrapperLiasonParent();
++    return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonParent();
 +}
 +
 +bool
-+TabParent::DeallocPObjectWrapperLiason(mozilla::js::ipc::PObjectWrapperLiasonParent* actor)
++TabParent::DeallocPObjectWrapperLiaison(mozilla::js::ipc::PObjectWrapperLiaisonParent* actor)
 +{
 +    delete actor;
 +    return true;
@@ -464,7 +464,7 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
  #include "mozilla/dom/PIFrameEmbeddingParent.h"
  
  #include "mozilla/ipc/GeckoChildProcessHost.h"
-+#include "mozilla/js/ipc/ObjectWrapperLiasonParent.h"
++#include "mozilla/js/ipc/ObjectWrapperLiaisonParent.h"
 +
 +#include "jsapi.h"
  
@@ -499,17 +499,17 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
              const bool& flush);
      virtual bool DeallocPDocumentRenderer(PDocumentRendererParent* actor);
 +
-+    mozilla::js::ipc::PObjectWrapperLiasonParent* AllocPObjectWrapperLiason();
-+    bool DeallocPObjectWrapperLiason(mozilla::js::ipc::PObjectWrapperLiasonParent*);
++    mozilla::js::ipc::PObjectWrapperLiaisonParent* AllocPObjectWrapperLiaison();
++    bool DeallocPObjectWrapperLiaison(mozilla::js::ipc::PObjectWrapperLiaisonParent*);
 +
 +    bool AttachGlobal(JSContext* cx, JSObject* to, jsid id) {
-+        return (mObjectWrapperLiason &&
-+                mObjectWrapperLiason->AttachGlobal(cx, to, id));
++        return (mObjectWrapperLiaison &&
++                mObjectWrapperLiaison->AttachGlobal(cx, to, id));
 +    }       
 +
  protected:
      nsIDOMElement* mFrameElement;
-+    mozilla::js::ipc::ObjectWrapperLiasonParent* mObjectWrapperLiason;
++    mozilla::js::ipc::ObjectWrapperLiaisonParent* mObjectWrapperLiaison;
  };
  
  } // namespace dom
@@ -594,7 +594,7 @@ diff --git a/ipc/ipdl/test/cxx/Makefile.in b/ipc/ipdl/test/cxx/Makefile.in
  
  # Please keep these organized in the order "easy"-to-"hard"
  IPDLTESTS = \
-+  TestObjectWrapperLiason \
++  TestObjectWrapperLiaison \
    TestSanity  \
    TestLatency \
    TestRPCRaces \
@@ -603,17 +603,17 @@ diff --git a/ipc/ipdl/test/cxx/Makefile.in b/ipc/ipdl/test/cxx/Makefile.in
    TestShmem \
    TestShutdown \
    TestArrays \
-diff --git a/ipc/ipdl/test/cxx/PTestObjectWrapperLiason.ipdl b/ipc/ipdl/test/cxx/PTestObjectWrapperLiason.ipdl
+diff --git a/ipc/ipdl/test/cxx/PTestObjectWrapperLiaison.ipdl b/ipc/ipdl/test/cxx/PTestObjectWrapperLiaison.ipdl
 new file mode 100644
 --- /dev/null
-+++ b/ipc/ipdl/test/cxx/PTestObjectWrapperLiason.ipdl
++++ b/ipc/ipdl/test/cxx/PTestObjectWrapperLiaison.ipdl
 @@ -0,0 +1,31 @@
 +
 +namespace mozilla {
 +namespace _ipdltest {
 +
 +
-+protocol PTestObjectWrapperLiason {
++protocol PTestObjectWrapperLiaison {
 +
 +child:
 +    Ping(int zero, float zeroPtFive);
@@ -639,12 +639,12 @@ new file mode 100644
 +
 +} // namespace mozilla
 +} // namespace _ipdltest
-diff --git a/ipc/ipdl/test/cxx/TestObjectWrapperLiason.cpp b/ipc/ipdl/test/cxx/TestObjectWrapperLiason.cpp
+diff --git a/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.cpp b/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.cpp
 new file mode 100644
 --- /dev/null
-+++ b/ipc/ipdl/test/cxx/TestObjectWrapperLiason.cpp
++++ b/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.cpp
 @@ -0,0 +1,97 @@
-+#include "TestObjectWrapperLiason.h"
++#include "TestObjectWrapperLiaison.h"
 +
 +#include "nsIAppShell.h"
 +
@@ -660,18 +660,18 @@ new file mode 100644
 +//-----------------------------------------------------------------------------
 +// parent
 +
-+TestObjectWrapperLiasonParent::TestObjectWrapperLiasonParent()
++TestObjectWrapperLiaisonParent::TestObjectWrapperLiaisonParent()
 +{
-+    MOZ_COUNT_CTOR(TestObjectWrapperLiasonParent);
++    MOZ_COUNT_CTOR(TestObjectWrapperLiaisonParent);
 +}
 +
-+TestObjectWrapperLiasonParent::~TestObjectWrapperLiasonParent()
++TestObjectWrapperLiaisonParent::~TestObjectWrapperLiaisonParent()
 +{
-+    MOZ_COUNT_DTOR(TestObjectWrapperLiasonParent);
++    MOZ_COUNT_DTOR(TestObjectWrapperLiaisonParent);
 +}
 +
 +void
-+TestObjectWrapperLiasonParent::Main()
++TestObjectWrapperLiaisonParent::Main()
 +{
 +    if (!SendPing(0, 0.5f))
 +        fail("sending Ping");
@@ -679,7 +679,7 @@ new file mode 100644
 +
 +
 +bool
-+TestObjectWrapperLiasonParent::RecvPong(const int& one, const float& zeroPtTwoFive)
++TestObjectWrapperLiaisonParent::RecvPong(const int& one, const float& zeroPtTwoFive)
 +{
 +    if (1 != one)
 +        fail("invalid argument `%d', should have been `1'", one);
@@ -697,7 +697,7 @@ new file mode 100644
 +}
 +
 +bool
-+TestObjectWrapperLiasonParent::RecvUNREACHED()
++TestObjectWrapperLiaisonParent::RecvUNREACHED()
 +{
 +    fail("unreached");
 +    return false;               // not reached
@@ -707,18 +707,18 @@ new file mode 100644
 +//-----------------------------------------------------------------------------
 +// child
 +
-+TestObjectWrapperLiasonChild::TestObjectWrapperLiasonChild()
++TestObjectWrapperLiaisonChild::TestObjectWrapperLiaisonChild()
 +{
-+    MOZ_COUNT_CTOR(TestObjectWrapperLiasonChild);
++    MOZ_COUNT_CTOR(TestObjectWrapperLiaisonChild);
 +}
 +
-+TestObjectWrapperLiasonChild::~TestObjectWrapperLiasonChild()
++TestObjectWrapperLiaisonChild::~TestObjectWrapperLiaisonChild()
 +{
-+    MOZ_COUNT_DTOR(TestObjectWrapperLiasonChild);
++    MOZ_COUNT_DTOR(TestObjectWrapperLiaisonChild);
 +}
 +
 +bool
-+TestObjectWrapperLiasonChild::RecvPing(const int& zero, const float& zeroPtFive)
++TestObjectWrapperLiaisonChild::RecvPing(const int& zero, const float& zeroPtFive)
 +{
 +    if (0 != zero)
 +        fail("invalid argument `%d', should have been `0'", zero);
@@ -732,7 +732,7 @@ new file mode 100644
 +}
 +
 +bool
-+TestObjectWrapperLiasonChild::RecvUNREACHED()
++TestObjectWrapperLiaisonChild::RecvUNREACHED()
 +{
 +    fail("unreached");
 +    return false;               // not reached
@@ -741,28 +741,28 @@ new file mode 100644
 +
 +} // namespace _ipdltest
 +} // namespace mozilla
-diff --git a/ipc/ipdl/test/cxx/TestObjectWrapperLiason.h b/ipc/ipdl/test/cxx/TestObjectWrapperLiason.h
+diff --git a/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.h b/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.h
 new file mode 100644
 --- /dev/null
-+++ b/ipc/ipdl/test/cxx/TestObjectWrapperLiason.h
++++ b/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.h
 @@ -0,0 +1,44 @@
-+#ifndef mozilla__ipdltest_TestObjectWrapperLiason_h
-+#define mozilla__ipdltest_TestObjectWrapperLiason_h 1
++#ifndef mozilla__ipdltest_TestObjectWrapperLiaison_h
++#define mozilla__ipdltest_TestObjectWrapperLiaison_h 1
 +
 +
-+#include "mozilla/_ipdltest/PTestObjectWrapperLiasonParent.h"
-+#include "mozilla/_ipdltest/PTestObjectWrapperLiasonChild.h"
++#include "mozilla/_ipdltest/PTestObjectWrapperLiaisonParent.h"
++#include "mozilla/_ipdltest/PTestObjectWrapperLiaisonChild.h"
 +
 +namespace mozilla {
 +namespace _ipdltest {
 +
 +
-+class TestObjectWrapperLiasonParent :
-+    public PTestObjectWrapperLiasonParent
++class TestObjectWrapperLiaisonParent :
++    public PTestObjectWrapperLiaisonParent
 +{
 +public:
-+    TestObjectWrapperLiasonParent();
-+    virtual ~TestObjectWrapperLiasonParent();
++    TestObjectWrapperLiaisonParent();
++    virtual ~TestObjectWrapperLiaisonParent();
 +
 +    void Main();
 +
@@ -772,12 +772,12 @@ new file mode 100644
 +};
 +
 +
-+class TestObjectWrapperLiasonChild :
-+    public PTestObjectWrapperLiasonChild
++class TestObjectWrapperLiaisonChild :
++    public PTestObjectWrapperLiaisonChild
 +{
 +public:
-+    TestObjectWrapperLiasonChild();
-+    virtual ~TestObjectWrapperLiasonChild();
++    TestObjectWrapperLiaisonChild();
++    virtual ~TestObjectWrapperLiaisonChild();
 +
 +protected:
 +    virtual bool RecvPing(const int& zero, const float& zeroPtFive);
@@ -789,7 +789,7 @@ new file mode 100644
 +} // namespace mozilla
 +
 +
-+#endif // ifndef mozilla__ipdltest_TestObjectWrapperLiason_h
++#endif // ifndef mozilla__ipdltest_TestObjectWrapperLiaison_h
 diff --git a/ipc/ipdl/test/cxx/ipdl.mk b/ipc/ipdl/test/cxx/ipdl.mk
 --- a/ipc/ipdl/test/cxx/ipdl.mk
 +++ b/ipc/ipdl/test/cxx/ipdl.mk
@@ -802,15 +802,15 @@ diff --git a/ipc/ipdl/test/cxx/ipdl.mk b/ipc/ipdl/test/cxx/ipdl.mk
    PTestShutdown.ipdl				\
    PTestShutdownSub.ipdl				\
    PTestShutdownSubsub.ipdl			\
-+  PTestObjectWrapperLiason.ipdl				\
++  PTestObjectWrapperLiaison.ipdl				\
    $(NULL)
 diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/CPOWTypes.h
 @@ -0,0 +1,51 @@
-+#ifndef mozilla_js_ipc_ObjectWrapperLiasonTypes_h__
-+#define mozilla_js_ipc_ObjectWrapperLiasonTypes_h__
++#ifndef mozilla_js_ipc_ObjectWrapperLiaisonTypes_h__
++#define mozilla_js_ipc_ObjectWrapperLiaisonTypes_h__
 +
 +#include "jsapi.h"
 +#include "jspubtd.h"
@@ -919,8 +919,8 @@ new file mode 100644
 +
 +EXPORTS_mozilla/js/ipc = \
 +  CPOWTypes.h \
-+  ObjectWrapperLiasonChild.h \
-+  ObjectWrapperLiasonParent.h \
++  ObjectWrapperLiaisonChild.h \
++  ObjectWrapperLiaisonParent.h \
 +  ObjectWrapperParent.h \
 +  ObjectWrapperChild.h \
 +  $(NULL)
@@ -940,7 +940,7 @@ new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
 @@ -0,0 +1,236 @@
-+#include "mozilla/js/ipc/ObjectWrapperLiasonChild.h"
++#include "mozilla/js/ipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/js/ipc/ObjectWrapperChild.h"
 +
 +namespace mozilla {
@@ -1048,11 +1048,11 @@ new file mode 100644
 +    }
 +}
 +
-+ObjectWrapperLiasonChild*
++ObjectWrapperLiaisonChild*
 +ObjectWrapperChild::Manager()
 +{
-+    PObjectWrapperLiasonChild* powlc = PObjectWrapperChild::Manager();
-+    return static_cast<ObjectWrapperLiasonChild*>(powlc);
++    PObjectWrapperLiaisonChild* powlc = PObjectWrapperChild::Manager();
++    return static_cast<ObjectWrapperLiaisonChild*>(powlc);
 +}
 +    
 +static bool
@@ -1192,7 +1192,7 @@ new file mode 100644
 +namespace js {
 +namespace ipc {
 +
-+class ObjectWrapperLiasonChild;
++class ObjectWrapperLiaisonChild;
 +  
 +class ObjectWrapperChild
 +    : public PObjectWrapperChild
@@ -1211,7 +1211,7 @@ new file mode 100644
 +    bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
 +    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
 +                                     jsval* to);
-+    ObjectWrapperLiasonChild* Manager();
++    ObjectWrapperLiaisonChild* Manager();
 +
 +protected:
 +
@@ -1244,10 +1244,10 @@ new file mode 100644
 +}}}
 +  
 +#endif
-diff --git a/js/src/ipc/ObjectWrapperLiasonChild.h b/js/src/ipc/ObjectWrapperLiasonChild.h
+diff --git a/js/src/ipc/ObjectWrapperLiaisonChild.h b/js/src/ipc/ObjectWrapperLiaisonChild.h
 new file mode 100644
 --- /dev/null
-+++ b/js/src/ipc/ObjectWrapperLiasonChild.h
++++ b/js/src/ipc/ObjectWrapperLiaisonChild.h
 @@ -0,0 +1,88 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
@@ -1288,10 +1288,10 @@ new file mode 100644
 + *
 + * ***** END LICENSE BLOCK ***** */
 +
-+#ifndef mozilla_js_ipc_ObjectWrapperLiasonChild_h__
-+#define mozilla_js_ipc_ObjectWrapperLiasonChild_h__
++#ifndef mozilla_js_ipc_ObjectWrapperLiaisonChild_h__
++#define mozilla_js_ipc_ObjectWrapperLiaisonChild_h__
 +
-+#include "mozilla/js/ipc/PObjectWrapperLiasonChild.h"
++#include "mozilla/js/ipc/PObjectWrapperLiaisonChild.h"
 +#include "mozilla/js/ipc/ObjectWrapperChild.h"
 +
 +#include "jsapi.h"
@@ -1300,12 +1300,12 @@ new file mode 100644
 +namespace js {
 +namespace ipc {
 +
-+class ObjectWrapperLiasonChild
-+    : public PObjectWrapperLiasonChild
++class ObjectWrapperLiaisonChild
++    : public PObjectWrapperLiaisonChild
 +{
 +public:
 +
-+    ObjectWrapperLiasonChild(JSContext* cx) : mContext(cx) {}
++    ObjectWrapperLiaisonChild(JSContext* cx) : mContext(cx) {}
 +
 +    PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
 +        JSAutoRequest request(mContext);
@@ -1337,10 +1337,10 @@ new file mode 100644
 +} // namespace mozilla
 +
 +#endif
-diff --git a/js/src/ipc/ObjectWrapperLiasonParent.h b/js/src/ipc/ObjectWrapperLiasonParent.h
+diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperLiaisonParent.h
 new file mode 100644
 --- /dev/null
-+++ b/js/src/ipc/ObjectWrapperLiasonParent.h
++++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
 @@ -0,0 +1,87 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
@@ -1381,10 +1381,10 @@ new file mode 100644
 + *
 + * ***** END LICENSE BLOCK ***** */
 +
-+#ifndef mozilla_js_ipc_ObjectWrapperLiasonParent_h__
-+#define mozilla_js_ipc_ObjectWrapperLiasonParent_h__
++#ifndef mozilla_js_ipc_ObjectWrapperLiaisonParent_h__
++#define mozilla_js_ipc_ObjectWrapperLiaisonParent_h__
 +
-+#include "mozilla/js/ipc/PObjectWrapperLiasonParent.h"
++#include "mozilla/js/ipc/PObjectWrapperLiaisonParent.h"
 +#include "mozilla/js/ipc/ObjectWrapperParent.h"
 +
 +#include "jsapi.h"
@@ -1393,8 +1393,8 @@ new file mode 100644
 +namespace js {
 +namespace ipc {
 +    
-+class ObjectWrapperLiasonParent
-+    : public PObjectWrapperLiasonParent
++class ObjectWrapperLiaisonParent
++    : public PObjectWrapperLiaisonParent
 +{   
 +public:
 +
@@ -1907,7 +1907,7 @@ new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
 @@ -0,0 +1,66 @@
-+include protocol "PObjectWrapperLiason.ipdl";
++include protocol "PObjectWrapperLiaison.ipdl";
 +
 +include "mozilla/js/ipc/CPOWTypes.h";
 +
@@ -1931,7 +1931,7 @@ new file mode 100644
 +
 +rpc protocol PObjectWrapper
 +{
-+    manager PObjectWrapperLiason;
++    manager PObjectWrapperLiaison;
 +    
 +child:
 +    __delete__(); // unroot
@@ -1973,10 +1973,10 @@ new file mode 100644
 +};
 +
 +}}}
-diff --git a/js/src/ipc/PObjectWrapperLiason.ipdl b/js/src/ipc/PObjectWrapperLiason.ipdl
+diff --git a/js/src/ipc/PObjectWrapperLiaison.ipdl b/js/src/ipc/PObjectWrapperLiaison.ipdl
 new file mode 100644
 --- /dev/null
-+++ b/js/src/ipc/PObjectWrapperLiason.ipdl
++++ b/js/src/ipc/PObjectWrapperLiaison.ipdl
 @@ -0,0 +1,58 @@
 +/* -*- Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 8 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 ft=cpp : */
@@ -2024,7 +2024,7 @@ new file mode 100644
 +namespace js {
 +namespace ipc {
 +
-+rpc protocol PObjectWrapperLiason
++rpc protocol PObjectWrapperLiaison
 +{
 +    manager PIFrameEmbedding;
 +    manages PObjectWrapper;
@@ -2079,7 +2079,7 @@ new file mode 100644
 +# ***** END LICENSE BLOCK *****
 +
 +IPDLSRCS = \
-+  PObjectWrapperLiason.ipdl \
++  PObjectWrapperLiaison.ipdl \
 +  PObjectWrapper.ipdl \
 +  $(NULL)
 diff --git a/toolkit/library/libxul-config.mk b/toolkit/library/libxul-config.mk
