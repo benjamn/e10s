@@ -1639,16 +1639,27 @@ diff --git a/js/src/ipc/PJSObject.ipdl b/js/src/ipc/PJSObject.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PJSObject.ipdl
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,61 @@
 +include protocol "PScriptProxy.ipdl";
 +
-+include "PScriptProxy.h"; // XXX why is this needed?
++include "mozilla/js/ipc/ScriptProxyTypes.h";
 +
-+using mozilla::js::ipc::JSVariant;
++using mozilla::js::ipc::void_t;
++using mozilla::js::ipc::null_t;
 +
 +namespace mozilla {
 +namespace js {
 +namespace ipc {
++
++union JSVariant {
++    void_t;
++    nullable PJSObject;
++    nsString;
++    int;
++    double;
++    bool;
++    null_t;
++};
 +
 +rpc protocol PJSObject
 +{
@@ -1694,7 +1705,7 @@ diff --git a/js/src/ipc/PScriptProxy.ipdl b/js/src/ipc/PScriptProxy.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PScriptProxy.ipdl
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,58 @@
 +/* -*- Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 8 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 ft=cpp : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1737,24 +1748,9 @@ new file mode 100644
 +include protocol "PIFrameEmbedding.ipdl";
 +include protocol "PJSObject.ipdl";
 +
-+include "mozilla/js/ipc/ScriptProxyTypes.h";
-+
-+using mozilla::js::ipc::void_t;
-+using mozilla::js::ipc::null_t;
-+
 +namespace mozilla {
 +namespace js {
 +namespace ipc {
-+
-+union JSVariant {
-+    void_t;
-+    nullable PJSObject;
-+    nsString;
-+    int;
-+    double;
-+    bool;
-+    null_t;
-+};
 +
 +rpc protocol PScriptProxy
 +{
