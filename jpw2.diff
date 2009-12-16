@@ -4,6 +4,8 @@
 # Node ID a82312ef8ffd49051c380264ad70c05b5948c643
 # Parent  69674697dbce469745f1baaccb507cca27afd1e8
 [mq]: jpw.diff
+* * *
+[mq]: tolerate-browserchrome-failure.diff
 
 diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFrameLoader.idl
 --- a/content/base/public/nsIFrameLoader.idl
@@ -808,7 +810,7 @@ diff --git a/js/src/ipc/JSObjectChild.cpp b/js/src/ipc/JSObjectChild.cpp
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/JSObjectChild.cpp
-@@ -0,0 +1,225 @@
+@@ -0,0 +1,237 @@
 +#include "mozilla/js/ipc/ScriptProxyChild.h"
 +#include "mozilla/js/ipc/JSObjectChild.h"
 +
@@ -1032,13 +1034,25 @@ new file mode 100644
 +    *obj2 = this;
 +    return true;
 +}
-+    
++
++bool
++JSObjectChild::AnswerConvert(const JSType& type,
++                             bool* ok,
++                             JSVariant* vp)
++{
++    jsval v;
++    JSAutoRequest request(mContext);
++    *ok = (JS_ConvertValue(mContext, OBJECT_TO_JSVAL(mObj), type, &v) &&
++           jsval_to_JSVariant(mContext, v, vp));
++    return true;
++}
++
 +}}}
 diff --git a/js/src/ipc/JSObjectChild.h b/js/src/ipc/JSObjectChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/JSObjectChild.h
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,72 @@
 +#ifndef mozilla_js_ipc_JSObjectChild_h__
 +#define mozilla_js_ipc_JSObjectChild_h__
 +
@@ -1102,6 +1116,10 @@ new file mode 100644
 +                          const int& flags,
 +                          bool* ok,
 +                          PJSObjectChild** obj2);
++
++    bool AnswerConvert(const JSType& type,
++                       bool* ok,
++                       JSVariant* vp);
 +};
 +
 +}}}
@@ -1111,7 +1129,7 @@ diff --git a/js/src/ipc/JSObjectParent.cpp b/js/src/ipc/JSObjectParent.cpp
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/JSObjectParent.cpp
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,351 @@
 +#include "mozilla/js/ipc/JSObjectParent.h"
 +
 +namespace mozilla {
@@ -1434,9 +1452,29 @@ new file mode 100644
 +            JSObject_from_PJSObjectParent(cx, out_obj, objp));
 +}
 +
++/*static*/ JSBool
++JSObjectParent::JPW_Convert(JSContext *cx, JSObject *obj, JSType type, jsval *vp)
++{
++    printf("Calling JPW_Convert...\n"); fflush(0);
++
++    JSObjectParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;
++
++    bool out_ok;
++    JSVariant out_v;
++
++    return (self->CallConvert(type,
++                              &out_ok, &out_v) &&
++            out_ok &&
++            jsval_from_JSVariant(cx, out_v, vp));
++}
++    
 +/*static*/ void
 +JSObjectParent::JPW_Finalize(JSContext* cx, JSObject* obj)
 +{
++    printf("Calling JPW_Finalize...\n"); fflush(0);
++
 +    JSObjectParent* self = Unwrap(cx, obj);
 +    if (self)
 +        self->Send__delete__(self);
@@ -1447,7 +1485,7 @@ diff --git a/js/src/ipc/JSObjectParent.h b/js/src/ipc/JSObjectParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/JSObjectParent.h
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,106 @@
 +#ifndef mozilla_js_ipc_JSObjectParent_h__
 +#define mozilla_js_ipc_JSObjectParent_h__
 +
@@ -1497,15 +1535,7 @@ new file mode 100644
 +                   JSObject **objp);
 +
 +    static JSBool
-+    JPW_Convert(JSContext *cx, JSObject *obj, JSType type, jsval *vp)
-+    {
-+        printf("Calling JPW_Convert...\n"); fflush(0);
-+        if (type == JSTYPE_STRING) {
-+            *vp = STRING_TO_JSVAL(JS_NewStringCopyZ(cx, "oyez"));
-+            return JS_TRUE;
-+        }
-+        return JS_FALSE;
-+    }
++    JPW_Convert(JSContext *cx, JSObject *obj, JSType type, jsval *vp);
 +
 +    static void
 +    JPW_Finalize(JSContext* cx, JSObject* obj);
@@ -1641,13 +1671,14 @@ diff --git a/js/src/ipc/PJSObject.ipdl b/js/src/ipc/PJSObject.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PJSObject.ipdl
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,66 @@
 +include protocol "PScriptProxy.ipdl";
 +
 +include "mozilla/js/ipc/ScriptProxyTypes.h";
 +
 +using mozilla::js::ipc::void_t;
 +using mozilla::js::ipc::null_t;
++using JSType;
 +
 +namespace mozilla {
 +namespace js {
@@ -1700,6 +1731,10 @@ new file mode 100644
 +                   int flags)
 +        returns (bool ok,
 +                 PJSObject obj2);
++
++    rpc Convert(JSType type)
++        returns (bool ok,
++                 JSVariant vp);
 +};
 +
 +}}}
@@ -1955,15 +1990,31 @@ diff --git a/js/src/ipc/ScriptProxyTypes.h b/js/src/ipc/ScriptProxyTypes.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ScriptProxyTypes.h
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,51 @@
 +#ifndef mozilla_js_ipc_ScriptProxyTypes_h__
 +#define mozilla_js_ipc_ScriptProxyTypes_h__
 +
 +#include "jsapi.h"
++#include "jspubtd.h"
 +
 +namespace mozilla {
 +namespace js {
 +namespace ipc {
++
++using namespace IPC;
++
++template <typename Type, typename As>
++struct JPWConvertible
++{
++    static void Write(Message* m, const Type& t) {
++        WriteParam(m, As(t));
++    }
++    static bool Read(const Message* m, void** iter, Type* tp) {
++        As a;
++        return (ReadParam(m, iter, &a) &&
++                (*tp = Type(a), true));
++    }
++};
 +
 +struct void_t {};
 +struct null_t {};
@@ -1971,8 +2022,8 @@ new file mode 100644
 +template <typename P>
 +struct JPWSingleton
 +{
-+    static void Write(IPC::Message*, const P&) {}
-+    static bool Read(const IPC::Message*, void**, P*) { return true; }
++    static void Write(Message*, const P&) {}
++    static bool Read(const Message*, void**, P*) { return true; }
 +};
 +    
 +} // namespace ipc
@@ -1981,12 +2032,12 @@ new file mode 100644
 +
 +namespace IPC {
 +
-+using mozilla::js::ipc::JPWSingleton;
-+using mozilla::js::ipc::null_t;
-+using mozilla::js::ipc::void_t;
++using namespace mozilla::js::ipc;
 +
 +template <> struct ParamTraits<void_t> : public JPWSingleton<void_t> {};
 +template <> struct ParamTraits<null_t> : public JPWSingleton<null_t> {};
++
++template <> struct ParamTraits<JSType> : public JPWConvertible<JSType, int> {};
 + 
 +}
 +
@@ -2082,7 +2133,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
  MAKEFILES_jsctypes="
    js/ctypes/Makefile
  "
-@@ -852,16 +856,17 @@ add_makefiles "
+@@ -851,16 +855,17 @@ add_makefiles "
    $MAKEFILES_db
    $MAKEFILES_dom
    $MAKEFILES_editor

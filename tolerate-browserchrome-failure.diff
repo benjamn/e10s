@@ -1,10 +1,3 @@
-# HG changeset patch
-# User Ben Newman <bnewman@mozilla.com>
-# Date 1260921233 28800
-# Node ID 52d6cca836c4397efeb549b69c2dba7d610410bb
-# Parent  a82312ef8ffd49051c380264ad70c05b5948c643
-[mq]: tolerate-browserchrome-failure.diff
-
 diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
 --- a/docshell/base/nsDocShell.cpp
 +++ b/docshell/base/nsDocShell.cpp
