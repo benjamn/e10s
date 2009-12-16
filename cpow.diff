@@ -3,9 +3,7 @@
 # Date 1257540219 28800
 # Node ID a82312ef8ffd49051c380264ad70c05b5948c643
 # Parent  69674697dbce469745f1baaccb507cca27afd1e8
-[mq]: jpw.diff
-* * *
-[mq]: tolerate-browserchrome-failure.diff
+Bug 516522 - CPOW: Cross-Process Object Wrapper.
 
 diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFrameLoader.idl
 --- a/content/base/public/nsIFrameLoader.idl
