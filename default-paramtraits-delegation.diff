@@ -3,7 +3,7 @@
 # Date 1260391386 28800
 # Node ID b19e323a0472cdd7c64b10abda9a2467363e380d
 # Parent  f9c0cc34ebe85229eaf87b2003659eac1e91669c
-[mq]: default-paramtraits-delegation.diff
+Bug 533804 - Provide default implementations of IPC::ParamTraits<T>::{Read,Write,Log} for unknown types T. r=cjones
 
 diff --git a/ipc/chromium/src/chrome/common/ipc_message_utils.h b/ipc/chromium/src/chrome/common/ipc_message_utils.h
 --- a/ipc/chromium/src/chrome/common/ipc_message_utils.h
