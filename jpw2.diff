@@ -808,7 +808,7 @@ diff --git a/js/src/ipc/JSObjectChild.cpp b/js/src/ipc/JSObjectChild.cpp
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/JSObjectChild.cpp
-@@ -0,0 +1,223 @@
+@@ -0,0 +1,225 @@
 +#include "mozilla/js/ipc/ScriptProxyChild.h"
 +#include "mozilla/js/ipc/JSObjectChild.h"
 +
@@ -820,12 +820,14 @@ new file mode 100644
 +    : mContext(cx)
 +    , mObj(obj)
 +{
++    JSAutoRequest request(mContext);
 +    JS_AddNamedRoot(mContext, (void*)&mObj,
 +                    "mozilla::js::ipc::JSObjectChild-rooted JSObject*");
 +}
 +
 +JSObjectChild::~JSObjectChild()
 +{
++    JSAutoRequest request(mContext);
 +    JS_RemoveRoot(mContext, (void*)&mObj);
 +}
 +
