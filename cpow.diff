@@ -939,7 +939,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,237 @@
+@@ -0,0 +1,236 @@
 +#include "mozilla/js/ipc/ObjectWrapperLiasonChild.h"
 +#include "mozilla/js/ipc/ObjectWrapperChild.h"
 +
@@ -976,8 +976,8 @@ new file mode 100644
 +            JSObject* obj;
 +            if (JS_ValueToObject(cx, from, &obj)) {
 +                // TODO get-or-create-ify this:
-+                *to = Manager()->SendPObjectWrapperConstructor(Manager()->AllocPObjectWrapper(obj),
-+                                                          false);
++                PObjectWrapperChild* powc = Manager()->AllocPObjectWrapper(obj);
++                *to = Manager()->SendPObjectWrapperConstructor(powc, false);
 +                return true;
 +            }
 +            return false;
@@ -1007,7 +1007,7 @@ new file mode 100644
 +
 +/*static*/ bool
 +ObjectWrapperChild::jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
-+                                    jsval* to)
++                                         jsval* to)
 +{
 +    switch (from.type()) {
 +    case JSVariant::Tvoid_t:
@@ -1015,15 +1015,22 @@ new file mode 100644
 +        return true;
 +    case JSVariant::TPObjectWrapperChild:
 +        {
++            const PObjectWrapperChild* powc = from.get_PObjectWrapperChild();
 +            const ObjectWrapperChild* owc =
-+                static_cast<const ObjectWrapperChild*>(from.get_PObjectWrapperChild());
++                static_cast<const ObjectWrapperChild*>(powc);
 +            *to = owc ? OBJECT_TO_JSVAL(owc->mObj) : JSVAL_NULL;
-+            return true;
 +        }
++        return true;
 +    case JSVariant::TnsString:
-+        *to = STRING_TO_JSVAL(JS_NewUCStringCopyN(cx,
-+                                                  from.get_nsString().BeginReading(),
-+                                                  from.get_nsString().Length()));
++        {
++            const nsString& str = from.get_nsString();
++            JSString* s = JS_NewUCStringCopyN(cx,
++                                              str.BeginReading(),
++                                              str.Length());
++            if (!s)
++                return false;
++            *to = STRING_TO_JSVAL(s);
++        }
 +        return true;
 +    case JSVariant::Tint:
 +        *to = INT_TO_JSVAL(from.get_int());
@@ -1044,14 +1051,15 @@ new file mode 100644
 +ObjectWrapperLiasonChild*
 +ObjectWrapperChild::Manager()
 +{
-+    return static_cast<ObjectWrapperLiasonChild*>(PObjectWrapperChild::Manager());
++    PObjectWrapperLiasonChild* powlc = PObjectWrapperChild::Manager();
++    return static_cast<ObjectWrapperLiasonChild*>(powlc);
 +}
 +    
 +static bool
 +jsid_from_nsString(JSContext* cx, const nsString& from, jsid* to)
 +{
 +    JSString* str = JS_NewUCStringCopyN(cx, from.BeginReading(), from.Length());
-+    return ::JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
++    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
 +}
 +
 +bool
@@ -1071,8 +1079,7 @@ new file mode 100644
 +
 +bool
 +ObjectWrapperChild::AnswerGetProperty(const nsString& id,
-+                                 bool* ok,
-+                                 JSVariant* vp)
++                                      bool* ok, JSVariant* vp)
 +{
 +    jsid interned_id;
 +    jsval val;
@@ -1090,10 +1097,8 @@ new file mode 100644
 +}
 +
 +bool
-+ObjectWrapperChild::AnswerSetProperty(const nsString& id,
-+                                 const JSVariant& v,
-+                                 bool* ok,
-+                                 JSVariant* vp)
++ObjectWrapperChild::AnswerSetProperty(const nsString& id, const JSVariant& v,
++                                      bool* ok, JSVariant* vp)
 +{
 +    jsid interned_id;
 +    jsval val;
@@ -1114,7 +1119,7 @@ new file mode 100644
 +
 +bool
 +ObjectWrapperChild::AnswerDelProperty(const nsString& id,
-+                                 bool* ok)
++                                      bool* ok)
 +{
 +    jsid interned_id;
 +
@@ -1131,18 +1136,15 @@ new file mode 100644
 +}
 +
 +bool
-+ObjectWrapperChild::AnswerNewEnumerateInit(bool* ok,
-+                                      JSVariant* statep,
-+                                      int* idp)
++ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
++                                           bool* ok, JSVariant* statep, int* idp)
 +{
 +    return false;
 +}
 +
 +bool
 +ObjectWrapperChild::AnswerNewEnumerateNext(const JSVariant& in_state,
-+                                      bool* ok,
-+                                      JSVariant* statep,
-+                                      nsString* idp)
++                                           bool* ok, JSVariant* statep, nsString* idp)
 +{
 +    return false;
 +}
@@ -1154,10 +1156,8 @@ new file mode 100644
 +}
 +    
 +bool
-+ObjectWrapperChild::AnswerNewResolve(const nsString& id,
-+                                const int& flags,
-+                                bool* ok,
-+                                PObjectWrapperChild** obj2)
++ObjectWrapperChild::AnswerNewResolve(const nsString& id, const int& flags,
++                                     bool* ok, PObjectWrapperChild** obj2)
 +{
 +    *ok = true;
 +    *obj2 = this;
@@ -1166,8 +1166,7 @@ new file mode 100644
 +
 +bool
 +ObjectWrapperChild::AnswerConvert(const JSType& type,
-+                             bool* ok,
-+                             JSVariant* vp)
++                                  bool* ok, JSVariant* vp)
 +{
 +    jsval v;
 +    JSAutoRequest request(mContext);
@@ -1181,7 +1180,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,63 @@
 +#ifndef mozilla_js_ipc_ObjectWrapperChild_h__
 +#define mozilla_js_ipc_ObjectWrapperChild_h__
 +
@@ -1219,36 +1218,27 @@ new file mode 100644
 +    bool RecvAddProperty(const nsString& id);
 +
 +    bool AnswerGetProperty(const nsString& id,
-+                           bool* ok,
-+                           JSVariant* vp);
++                           bool* ok, JSVariant* vp);
 +
-+    bool AnswerSetProperty(const nsString& id,
-+                           const JSVariant& v,
-+                           bool* ok,
-+                           JSVariant* vp);
++    bool AnswerSetProperty(const nsString& id, const JSVariant& v,
++                           bool* ok, JSVariant* vp);
 +
 +    bool AnswerDelProperty(const nsString& id,
 +                           bool* ok);
 +
-+    bool AnswerNewEnumerateInit(bool* ok,
-+                                JSVariant* statep,
-+                                int* idp);
++    bool AnswerNewEnumerateInit(/* no in-parameters */
++                                bool* ok, JSVariant* statep, int* idp);
 +
 +    bool AnswerNewEnumerateNext(const JSVariant& in_state,
-+                                bool* ok,
-+                                JSVariant* statep,
-+                                nsString* idp);
++                                bool* ok, JSVariant* statep, nsString* idp);
 +
 +    bool RecvNewEnumerateDestroy(const JSVariant& in_state);
 +
-+    bool AnswerNewResolve(const nsString& id,
-+                          const int& flags,
-+                          bool* ok,
-+                          PObjectWrapperChild** obj2);
++    bool AnswerNewResolve(const nsString& id, const int& flags,
++                          bool* ok, PObjectWrapperChild** obj2);
 +
 +    bool AnswerConvert(const JSType& type,
-+                       bool* ok,
-+                       JSVariant* vp);
++                       bool* ok, JSVariant* vp);
 +};
 +
 +}}}
@@ -1443,7 +1433,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,356 @@
 +#include "mozilla/js/ipc/ObjectWrapperParent.h"
 +
 +namespace mozilla {
@@ -1504,7 +1494,8 @@ new file mode 100644
 +}
 +
 +/*static*/ bool
-+ObjectWrapperParent::jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to)
++ObjectWrapperParent::jsval_to_JSVariant(JSContext* cx, jsval from,
++                                        JSVariant* to)
 +{
 +    switch (JS_TypeOfValue(cx, from)) {
 +    case JSTYPE_VOID:
@@ -1535,7 +1526,8 @@ new file mode 100644
 +}
 +
 +/*static*/ bool
-+ObjectWrapperParent::jsval_from_JSVariant(JSContext* cx, const JSVariant& from, jsval* to)
++ObjectWrapperParent::jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
++                                          jsval* to)
 +{
 +    switch (from.type()) {
 +    case JSVariant::Tvoid_t:
@@ -1569,9 +1561,10 @@ new file mode 100644
 +}
 +
 +/*static*/ bool
-+ObjectWrapperParent::JSObject_from_PObjectWrapperParent(JSContext* cx,
-+                                              const PObjectWrapperParent* from,
-+                                              JSObject** to)
++ObjectWrapperParent::
++JSObject_from_PObjectWrapperParent(JSContext* cx,
++                                   const PObjectWrapperParent* from,
++                                   JSObject** to)
 +{
 +    const ObjectWrapperParent* owp =
 +        static_cast<const ObjectWrapperParent*>(from);
@@ -1609,7 +1602,7 @@ new file mode 100644
 +
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_AddProperty(JSContext *cx, JSObject *obj, jsval id,
-+                                jsval *vp)
++                                      jsval *vp)
 +{
 +    printf("Calling CPOW_AddProperty...\n"); fflush(0);
 +
@@ -1627,7 +1620,7 @@ new file mode 100644
 +
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_GetProperty(JSContext *cx, JSObject *obj, jsval id,
-+                                jsval *vp)
++                                      jsval *vp)
 +{
 +    printf("Calling CPOW_GetProperty...\n"); fflush(0);
 +
@@ -1651,7 +1644,7 @@ new file mode 100644
 +
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id,
-+                                jsval *vp)
++                                      jsval *vp)
 +{
 +    printf("Calling CPOW_SetProperty...\n"); fflush(0);
 +
@@ -1677,7 +1670,7 @@ new file mode 100644
 +    
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_DelProperty(JSContext *cx, JSObject *obj, jsval id,
-+                                jsval *vp)
++                                      jsval *vp)
 +{
 +    printf("Calling CPOW_DelProperty...\n"); fflush(0);
 +
@@ -1699,7 +1692,8 @@ new file mode 100644
 +
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_NewEnumerate(JSContext *cx, JSObject *obj,
-+                                 JSIterateOp enum_op, jsval *statep, jsid *idp)
++                                       JSIterateOp enum_op, jsval *statep,
++                                       jsid *idp)
 +{
 +    printf("Calling CPOW_NewEnumerate...\n"); fflush(0);
 +
@@ -1742,7 +1736,7 @@ new file mode 100644
 +    
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_NewResolve(JSContext *cx, JSObject *obj, jsval id,
-+                               uintN flags, JSObject **objp)
++                                     uintN flags, JSObject **objp)
 +{
 +    printf("Calling CPOW_NewResolve (%s)...\n",
 +           JS_GetTypeName(cx, JS_TypeOfValue(cx, id)));
@@ -1767,7 +1761,8 @@ new file mode 100644
 +}
 +
 +/*static*/ JSBool
-+ObjectWrapperParent::CPOW_Convert(JSContext *cx, JSObject *obj, JSType type, jsval *vp)
++ObjectWrapperParent::CPOW_Convert(JSContext *cx, JSObject *obj, JSType type,
++                                  jsval *vp)
 +{
 +    printf("Calling CPOW_Convert...\n"); fflush(0);
 +
@@ -1799,7 +1794,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,107 @@
 +#ifndef mozilla_js_ipc_ObjectWrapperParent_h__
 +#define mozilla_js_ipc_ObjectWrapperParent_h__
 +
@@ -1842,11 +1837,11 @@ new file mode 100644
 +
 +    static JSBool
 +    CPOW_NewEnumerate(JSContext *cx, JSObject *obj, JSIterateOp enum_op,
-+                     jsval *statep, jsid *idp);
++                      jsval *statep, jsid *idp);
 +
 +    static JSBool
 +    CPOW_NewResolve(JSContext *cx, JSObject *obj, jsval id, uintN flags,
-+                   JSObject **objp);
++                    JSObject **objp);
 +
 +    static JSBool
 +    CPOW_Convert(JSContext *cx, JSObject *obj, JSType type, jsval *vp);
@@ -1856,7 +1851,7 @@ new file mode 100644
 +
 +    static JSBool
 +    CPOW_CheckAccess(JSContext *cx, JSObject *obj, jsval id,
-+                    JSAccessMode mode, jsval *vp)
++                     JSAccessMode mode, jsval *vp)
 +    {
 +        printf("Calling CPOW_CheckAccess...\n"); fflush(0);
 +        return JS_TRUE;
@@ -1885,7 +1880,7 @@ new file mode 100644
 +    
 +    static JSBool
 +    CPOW_toString(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
-+                 jsval *rval)
++                  jsval *rval)
 +    {
 +        printf("Calling CPOW_toString...\n"); fflush(0);
 +        JSString *str = JS_NewStringCopyZ(cx, "[object CPOW]");
@@ -1898,9 +1893,10 @@ new file mode 100644
 +    static bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
 +    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
 +                                     jsval* to);
-+    static bool JSObject_from_PObjectWrapperParent(JSContext* cx,
-+                                              const PObjectWrapperParent* from,
-+                                              JSObject** to);
++    static bool
++    JSObject_from_PObjectWrapperParent(JSContext* cx,
++                                       const PObjectWrapperParent* from,
++                                       JSObject** to);
 +};
 +
 +}}}
