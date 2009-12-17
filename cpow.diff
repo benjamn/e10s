@@ -154,7 +154,7 @@ diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
  
  include "mozilla/TabTypes.h";
  include "TabMessageUtils.h";
-+include "mozilla/js/ipc/CPOWTypes.h";
++include "mozilla/jsipc/CPOWTypes.h";
  
  using MagicWindowHandle;
  using RemoteDOMEvent;
@@ -203,7 +203,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  #include "nsIDOMEvent.h"
  #include "nsIPrivateDOMEvent.h"
  
-+#include "mozilla/js/ipc/ObjectWrapperLiaisonChild.h"
++#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "nsIDocument.h"
 +#include "nsIScriptGlobalObject.h"
 +#include "nsIScriptContext.h"
@@ -248,7 +248,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  
 +#include "nsIScriptGlobalObjectOwner.h"
 +
-+mozilla::js::ipc::PObjectWrapperLiaisonChild*
++mozilla::jsipc::PObjectWrapperLiaisonChild*
 +TabChild::AllocPObjectWrapperLiaison()
 +{
 +#if 0
@@ -263,7 +263,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +        (global = owner->GetScriptGlobalObject()) &&
 +        (context = do_QueryInterface(global->GetContext())) &&
 +        (cx = static_cast<JSContext*>(context->GetNativeContext())))
-+        return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonChild(cx);
++        return mObjectWrapperLiaison = new mozilla::jsipc::ObjectWrapperLiaisonChild(cx);
 +
 +    return NULL;
 +#endif
@@ -275,7 +275,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +    JSContext* cx;
 +    if (NS_SUCCEEDED(rtsvc->GetRuntime(&rt)) &&
 +        (cx = JS_NewContext(rt, 1<<10)))
-+        return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonChild(cx);
++        return mObjectWrapperLiaison = new mozilla::jsipc::ObjectWrapperLiaisonChild(cx);
 +    return NULL;
 +#endif
 +    
@@ -291,7 +291,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
 +        (context = do_QueryInterface(global->GetContext())) &&
 +        (cx = static_cast<JSContext*>(context->GetNativeContext())))
-+        return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonChild(cx);
++        return mObjectWrapperLiaison = new mozilla::jsipc::ObjectWrapperLiaisonChild(cx);
 +
 +    return NULL;
 +#endif
@@ -311,14 +311,14 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
 +        (context = do_QueryInterface(global->GetContext())) &&
 +        (cx = static_cast<JSContext*>(context->GetNativeContext()))) {
-+        return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonChild(cx);
++        return mObjectWrapperLiaison = new mozilla::jsipc::ObjectWrapperLiaisonChild(cx);
 +    }
 +    return NULL;
 +#endif
 +}
 +
 +bool
-+TabChild::DeallocPObjectWrapperLiaison(mozilla::js::ipc::PObjectWrapperLiaisonChild* actor)
++TabChild::DeallocPObjectWrapperLiaison(mozilla::jsipc::PObjectWrapperLiaisonChild* actor)
 +{
 +    delete actor;
 +    return true;
@@ -344,8 +344,8 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
  #include "nsIDOMEventListener.h"
  #include "nsIDOMEventTarget.h"
  
-+#include "mozilla/js/ipc/ObjectWrapperLiaisonChild.h"
-+#include "mozilla/js/ipc/PObjectWrapperLiaisonChild.h"
++#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
++#include "mozilla/jsipc/PObjectWrapperLiaisonChild.h"
 +
  namespace mozilla {
  namespace dom {
@@ -365,12 +365,12 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
              const bool& flush);
  
 +protected:
-+    mozilla::js::ipc::PObjectWrapperLiaisonChild* AllocPObjectWrapperLiaison();
-+    bool DeallocPObjectWrapperLiaison(mozilla::js::ipc::PObjectWrapperLiaisonChild*);
++    mozilla::jsipc::PObjectWrapperLiaisonChild* AllocPObjectWrapperLiaison();
++    bool DeallocPObjectWrapperLiaison(mozilla::jsipc::PObjectWrapperLiaisonChild*);
 +    
  private:
      nsCOMPtr<nsIWebNavigation> mWebNav;
-+    mozilla::js::ipc::ObjectWrapperLiaisonChild* mObjectWrapperLiaison;
++    mozilla::jsipc::ObjectWrapperLiaisonChild* mObjectWrapperLiaison;
  
      DISALLOW_EVIL_CONSTRUCTORS(TabChild);
  };
@@ -391,7 +391,7 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
  #include "nsIDOMEvent.h"
  #include "nsIPrivateDOMEvent.h"
  
-+#include "mozilla/js/ipc/ObjectWrapperLiaisonParent.h"
++#include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
 +
  using mozilla::ipc::BrowserProcessSubThread;
  using mozilla::ipc::DocumentRendererParent;
@@ -431,14 +431,14 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
      Sendactivate();
  }
  
-+mozilla::js::ipc::PObjectWrapperLiaisonParent*
++mozilla::jsipc::PObjectWrapperLiaisonParent*
 +TabParent::AllocPObjectWrapperLiaison()
 +{
-+    return mObjectWrapperLiaison = new mozilla::js::ipc::ObjectWrapperLiaisonParent();
++    return mObjectWrapperLiaison = new mozilla::jsipc::ObjectWrapperLiaisonParent();
 +}
 +
 +bool
-+TabParent::DeallocPObjectWrapperLiaison(mozilla::js::ipc::PObjectWrapperLiaisonParent* actor)
++TabParent::DeallocPObjectWrapperLiaison(mozilla::jsipc::PObjectWrapperLiaisonParent* actor)
 +{
 +    delete actor;
 +    return true;
@@ -464,7 +464,7 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
  #include "mozilla/dom/PIFrameEmbeddingParent.h"
  
  #include "mozilla/ipc/GeckoChildProcessHost.h"
-+#include "mozilla/js/ipc/ObjectWrapperLiaisonParent.h"
++#include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
 +
 +#include "jsapi.h"
  
@@ -499,8 +499,8 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
              const bool& flush);
      virtual bool DeallocPDocumentRenderer(PDocumentRendererParent* actor);
 +
-+    mozilla::js::ipc::PObjectWrapperLiaisonParent* AllocPObjectWrapperLiaison();
-+    bool DeallocPObjectWrapperLiaison(mozilla::js::ipc::PObjectWrapperLiaisonParent*);
++    mozilla::jsipc::PObjectWrapperLiaisonParent* AllocPObjectWrapperLiaison();
++    bool DeallocPObjectWrapperLiaison(mozilla::jsipc::PObjectWrapperLiaisonParent*);
 +
 +    bool AttachGlobal(JSContext* cx, JSObject* to, jsid id) {
 +        return (mObjectWrapperLiaison &&
@@ -509,7 +509,7 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
 +
  protected:
      nsIDOMElement* mFrameElement;
-+    mozilla::js::ipc::ObjectWrapperLiaisonParent* mObjectWrapperLiaison;
++    mozilla::jsipc::ObjectWrapperLiaisonParent* mObjectWrapperLiaison;
  };
  
  } // namespace dom
@@ -808,16 +808,15 @@ diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/CPOWTypes.h
-@@ -0,0 +1,51 @@
-+#ifndef mozilla_js_ipc_ObjectWrapperLiaisonTypes_h__
-+#define mozilla_js_ipc_ObjectWrapperLiaisonTypes_h__
+@@ -0,0 +1,49 @@
++#ifndef mozilla_jsipc_ObjectWrapperLiaisonTypes_h__
++#define mozilla_jsipc_ObjectWrapperLiaisonTypes_h__
 +
 +#include "jsapi.h"
 +#include "jspubtd.h"
 +
 +namespace mozilla {
-+namespace js {
-+namespace ipc {
++namespace jsipc {
 +
 +using namespace IPC;
 +
@@ -844,13 +843,12 @@ new file mode 100644
 +    static bool Read(const Message*, void**, P*) { return true; }
 +};
 +    
-+} // namespace ipc
-+} // namespace js
++} // namespace jsipc
 +} // namespace mozilla
 +
 +namespace IPC {
 +
-+using namespace mozilla::js::ipc;
++using namespace mozilla::jsipc;
 +
 +template <> struct ParamTraits<void_t> : public CPOWSingleton<void_t> {};
 +template <> struct ParamTraits<null_t> : public CPOWSingleton<null_t> {};
@@ -915,9 +913,9 @@ new file mode 100644
 +FORCE_STATIC_LIB = 1
 +EXPORT_LIBRARY = 1
 +
-+EXPORTS_NAMESPACES = mozilla/js/ipc
++EXPORTS_NAMESPACES = mozilla/jsipc
 +
-+EXPORTS_mozilla/js/ipc = \
++EXPORTS_mozilla/jsipc = \
 +  CPOWTypes.h \
 +  ObjectWrapperLiaisonChild.h \
 +  ObjectWrapperLiaisonParent.h \
@@ -939,13 +937,12 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,236 @@
-+#include "mozilla/js/ipc/ObjectWrapperLiaisonChild.h"
-+#include "mozilla/js/ipc/ObjectWrapperChild.h"
+@@ -0,0 +1,235 @@
++#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
++#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
 +namespace mozilla {
-+namespace js {
-+namespace ipc {
++namespace jsipc {
 +
 +ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
 +    : mContext(cx)
@@ -953,7 +950,7 @@ new file mode 100644
 +{
 +    JSAutoRequest request(mContext);
 +    JS_AddNamedRoot(mContext, (void*)&mObj,
-+                    "mozilla::js::ipc::ObjectWrapperChild-rooted JSObject*");
++                    "mozilla::jsipc::ObjectWrapperChild-rooted JSObject*");
 +}
 +
 +ObjectWrapperChild::~ObjectWrapperChild()
@@ -1175,22 +1172,21 @@ new file mode 100644
 +    return true;
 +}
 +
-+}}}
++}}
 diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,63 @@
-+#ifndef mozilla_js_ipc_ObjectWrapperChild_h__
-+#define mozilla_js_ipc_ObjectWrapperChild_h__
+@@ -0,0 +1,62 @@
++#ifndef mozilla_jsipc_ObjectWrapperChild_h__
++#define mozilla_jsipc_ObjectWrapperChild_h__
 +
-+#include "mozilla/js/ipc/PObjectWrapperChild.h"
++#include "mozilla/jsipc/PObjectWrapperChild.h"
 +
-+using mozilla::js::ipc::JSVariant;
++using mozilla::jsipc::JSVariant;
 +
 +namespace mozilla {
-+namespace js {
-+namespace ipc {
++namespace jsipc {
 +
 +class ObjectWrapperLiaisonChild;
 +  
@@ -1241,14 +1237,14 @@ new file mode 100644
 +                       bool* ok, JSVariant* vp);
 +};
 +
-+}}}
++}}
 +  
 +#endif
 diff --git a/js/src/ipc/ObjectWrapperLiaisonChild.h b/js/src/ipc/ObjectWrapperLiaisonChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonChild.h
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,85 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1288,17 +1284,16 @@ new file mode 100644
 + *
 + * ***** END LICENSE BLOCK ***** */
 +
-+#ifndef mozilla_js_ipc_ObjectWrapperLiaisonChild_h__
-+#define mozilla_js_ipc_ObjectWrapperLiaisonChild_h__
++#ifndef mozilla_jsipc_ObjectWrapperLiaisonChild_h__
++#define mozilla_jsipc_ObjectWrapperLiaisonChild_h__
 +
-+#include "mozilla/js/ipc/PObjectWrapperLiaisonChild.h"
-+#include "mozilla/js/ipc/ObjectWrapperChild.h"
++#include "mozilla/jsipc/PObjectWrapperLiaisonChild.h"
++#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
 +#include "jsapi.h"
 +
 +namespace mozilla {
-+namespace js {
-+namespace ipc {
++namespace jsipc {
 +
 +class ObjectWrapperLiaisonChild
 +    : public PObjectWrapperLiaisonChild
@@ -1332,16 +1327,14 @@ new file mode 100644
 +
 +};
 +
-+} // namespace ipc
-+} // namespace js
-+} // namespace mozilla
++}}
 +
 +#endif
 diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperLiaisonParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,96 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1381,18 +1374,17 @@ new file mode 100644
 + *
 + * ***** END LICENSE BLOCK ***** */
 +
-+#ifndef mozilla_js_ipc_ObjectWrapperLiaisonParent_h__
-+#define mozilla_js_ipc_ObjectWrapperLiaisonParent_h__
++#ifndef mozilla_jsipc_ObjectWrapperLiaisonParent_h__
++#define mozilla_jsipc_ObjectWrapperLiaisonParent_h__
 +
-+#include "mozilla/js/ipc/PObjectWrapperLiaisonParent.h"
-+#include "mozilla/js/ipc/ObjectWrapperParent.h"
++#include "mozilla/jsipc/PObjectWrapperLiaisonParent.h"
++#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsapi.h"
 +#include "nsAutoJSValHolder.h"
 +
 +namespace mozilla {
-+namespace js {
-+namespace ipc {
++namespace jsipc {
 +    
 +class ObjectWrapperLiaisonParent
 +    : public PObjectWrapperLiaisonParent
@@ -1436,21 +1428,18 @@ new file mode 100644
 +
 +};
 +
-+} // namespace ipc
-+} // namespace js
-+} // namespace mozilla
++}}
 +
 +#endif
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,365 @@
-+#include "mozilla/js/ipc/ObjectWrapperParent.h"
+@@ -0,0 +1,364 @@
++#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +namespace mozilla {
-+namespace js {
-+namespace ipc {
++namespace jsipc {
 +
 +namespace {
 +    static const PRUint32 sFlagsSlot = 0, sWrappedObjSlot = 1;
@@ -1810,22 +1799,21 @@ new file mode 100644
 +        ObjectWrapperParent::Send__delete__(self);
 +}
 +
-+}}}
++}}
 diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,117 @@
-+#ifndef mozilla_js_ipc_ObjectWrapperParent_h__
-+#define mozilla_js_ipc_ObjectWrapperParent_h__
+@@ -0,0 +1,116 @@
++#ifndef mozilla_jsipc_ObjectWrapperParent_h__
++#define mozilla_jsipc_ObjectWrapperParent_h__
 +
-+#include "mozilla/js/ipc/PObjectWrapperParent.h"
++#include "mozilla/jsipc/PObjectWrapperParent.h"
 +#include "jsapi.h"
 +#include "nsAutoJSValHolder.h"
 +
 +namespace mozilla {
-+namespace js {
-+namespace ipc {
++namespace jsipc {
 +
 +class ObjectWrapperParent
 +    : public PObjectWrapperParent
@@ -1930,25 +1918,24 @@ new file mode 100644
 +                                       JSObject** to);
 +};
 +
-+}}}
++}}
 +  
 +#endif
 diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,65 @@
 +include protocol "PObjectWrapperLiaison.ipdl";
 +
-+include "mozilla/js/ipc/CPOWTypes.h";
++include "mozilla/jsipc/CPOWTypes.h";
 +
-+using mozilla::js::ipc::void_t;
-+using mozilla::js::ipc::null_t;
++using mozilla::jsipc::void_t;
++using mozilla::jsipc::null_t;
 +using JSType;
 +
 +namespace mozilla {
-+namespace js {
-+namespace ipc {
++namespace jsipc {
 +
 +union JSVariant {
 +    void_t;
@@ -2003,12 +1990,12 @@ new file mode 100644
 +                 JSVariant vp);
 +};
 +
-+}}}
++}}
 diff --git a/js/src/ipc/PObjectWrapperLiaison.ipdl b/js/src/ipc/PObjectWrapperLiaison.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapperLiaison.ipdl
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,55 @@
 +/* -*- Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 8 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 ft=cpp : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -2052,8 +2039,7 @@ new file mode 100644
 +include protocol "PObjectWrapper.ipdl";
 +
 +namespace mozilla {
-+namespace js {
-+namespace ipc {
++namespace jsipc {
 +
 +rpc protocol PObjectWrapperLiaison
 +{
@@ -2064,9 +2050,7 @@ new file mode 100644
 +    sync PObjectWrapper(bool global);
 +};
 +
-+} // namespace ipc
-+} // namespace js
-+} // mozilla
++}}
 diff --git a/js/src/ipc/ipdl.mk b/js/src/ipc/ipdl.mk
 new file mode 100644
 --- /dev/null
