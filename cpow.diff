@@ -1833,8 +1833,8 @@ new file mode 100644
 +public:
 +
 +    ObjectWrapperParent()
-+        : mObj(0)
-+        , mObjSlotContents(new ObjectWrapperParent const*)
++        : mObj(NULL)
++        , mObjSlotContents(new ObjectWrapperParent const*(NULL))
 +    {}
 +    
 +    JSObject* GetJSObject(JSContext* cx) const;
