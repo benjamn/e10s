@@ -1341,7 +1341,7 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperL
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,99 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1388,6 +1388,7 @@ new file mode 100644
 +#include "mozilla/js/ipc/ObjectWrapperParent.h"
 +
 +#include "jsapi.h"
++#include "nsAutoJSValHolder.h"
 +
 +namespace mozilla {
 +namespace js {
@@ -1395,15 +1396,25 @@ new file mode 100644
 +    
 +class ObjectWrapperLiaisonParent
 +    : public PObjectWrapperLiaisonParent
-+{   
++{
 +public:
 +
-+    bool AttachGlobal(JSContext* cx, JSObject* to, jsid id) {
++    bool AttachGlobal(JSContext* cx, JSObject* to, jsid id)
++    {
 +        return (mGlobal &&
 +                JS_DefinePropertyById(cx, to, id, mGlobal->GetJSVal(cx), NULL,
 +                                      NULL, 0));
 +    }
-+    
++
++protected:
++
++    void ActorDestroy(ActorDestroyReason why)
++    {
++        printf("Destroying actor %x via ActorDestroy...\n",
++               (void*)this);
++        fflush(0);
++    }
++
 +private:
 +
 +    ObjectWrapperParent* mGlobal;
@@ -1416,7 +1427,8 @@ new file mode 100644
 +        return owp;
 +    }
 +
-+    bool DeallocPObjectWrapper(PObjectWrapperParent* actor) {
++    bool DeallocPObjectWrapper(PObjectWrapperParent* actor)
++    {
 +        // TODO what if actor == mGlobal?
 +        delete actor;
 +        return true;
@@ -1433,7 +1445,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,356 @@
+@@ -0,0 +1,365 @@
 +#include "mozilla/js/ipc/ObjectWrapperParent.h"
 +
 +namespace mozilla {
@@ -1456,10 +1468,10 @@ new file mode 100644
 +      (JSEnumerateOp)_::CPOW_NewEnumerate,
 +      (JSResolveOp)_::CPOW_NewResolve,
 +      _::CPOW_Convert,     _::CPOW_Finalize,
-+      nsnull,             _::CPOW_CheckAccess,
-+      nsnull,             nsnull,
-+      nsnull,             _::CPOW_HasInstance,
-+      nsnull,             nsnull
++      nsnull,              _::CPOW_CheckAccess,
++      nsnull,              nsnull,
++      nsnull,              _::CPOW_HasInstance,
++      nsnull,              nsnull
 +    },
 +
 +    // JSExtendedClass initialization
@@ -1471,14 +1483,21 @@ new file mode 100644
 +    JSCLASS_NO_RESERVED_MEMBERS
 +};
 +
++void
++ObjectWrapperParent::ActorDestroy(ActorDestroyReason why)
++{
++    *mObjSlotContents = NULL;
++}
++    
 +JSObject*
 +ObjectWrapperParent::GetJSObject(JSContext* cx) const
 +{
 +    JSClass* clasp = const_cast<JSClass*>(&_::sCPOW_JSClass.base);
 +    if (!mObj) {
-+        JSAutoRequest request(cx);
 +        mObj = JS_NewObjectWithGivenProto(cx, clasp, NULL, NULL);
-+        JS_SetReservedSlot(cx, mObj, sWrappedObjSlot, PRIVATE_TO_JSVAL(this));
++        *mObjSlotContents = this;
++        JS_SetReservedSlot(cx, mObj, sWrappedObjSlot,
++                           PRIVATE_TO_JSVAL(mObjSlotContents));
 +        JS_SetReservedSlot(cx, mObj, sFlagsSlot, JSVAL_ZERO);
 +    }
 +    return mObj;
@@ -1490,7 +1509,7 @@ new file mode 100644
 +    jsval info;
 +    if (!JS_GetReservedSlot(cx, obj, sWrappedObjSlot, &info))
 +        return NULL;
-+    return static_cast<ObjectWrapperParent*>(JSVAL_TO_PRIVATE(info));
++    return *static_cast<ObjectWrapperParent**>(JSVAL_TO_PRIVATE(info));
 +}
 +
 +/*static*/ bool
@@ -1782,11 +1801,13 @@ new file mode 100644
 +/*static*/ void
 +ObjectWrapperParent::CPOW_Finalize(JSContext* cx, JSObject* obj)
 +{
-+    printf("Calling CPOW_Finalize...\n"); fflush(0);
-+
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
-+    if (self)
-+        self->Send__delete__(self);
++
++    printf("Calling CPOW_Finalize...\n");
++    fflush(0);
++    
++    if (self) // disable for now
++        ObjectWrapperParent::Send__delete__(self);
 +}
 +
 +}}}
@@ -1794,7 +1815,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,117 @@
 +#ifndef mozilla_js_ipc_ObjectWrapperParent_h__
 +#define mozilla_js_ipc_ObjectWrapperParent_h__
 +
@@ -1811,15 +1832,25 @@ new file mode 100644
 +{
 +public:
 +
++    ObjectWrapperParent()
++        : mObj(0)
++        , mObjSlotContents(new ObjectWrapperParent const*)
++    {}
++    
 +    JSObject* GetJSObject(JSContext* cx) const;
 +
 +    jsval GetJSVal(JSContext* cx) const {
 +        return OBJECT_TO_JSVAL(GetJSObject(cx));
 +    }
 +    
++protected:
++
++    void ActorDestroy(ActorDestroyReason why);
++
 +private:
 +
 +    mutable JSObject* mObj;
++    ObjectWrapperParent const** const mObjSlotContents;
 +
 +    static const JSExtendedClass sCPOW_JSClass;
 +    
