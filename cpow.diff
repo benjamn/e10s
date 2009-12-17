@@ -1448,8 +1448,10 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,379 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
++
++#include "jsobj.h"
 +
 +namespace mozilla {
 +namespace jsipc {
@@ -1508,9 +1510,15 @@ new file mode 100644
 +static ObjectWrapperParent*
 +Unwrap(JSContext* cx, JSObject* obj)
 +{
++    while (STOBJ_GET_CLASS(obj) != &_::sCPOW_JSClass.base)
++        if (!(obj = STOBJ_GET_PROTO(obj)))
++            return NULL;
++    
 +    jsval info;
++
 +    if (!JS_GetReservedSlot(cx, obj, sWrappedObjSlot, &info))
 +        return NULL;
++
 +    return *static_cast<ObjectWrapperParent**>(JSVAL_TO_PRIVATE(info));
 +}
 +
@@ -1523,8 +1531,15 @@ new file mode 100644
 +        *to = void_t();
 +        return true;
 +    case JSTYPE_OBJECT:
++        {
++            ObjectWrapperParent* owp = Unwrap(cx, JSVAL_TO_OBJECT(from));
++            if (!owp)
++                return false;
++            *to = owp;
++            return true;
++        }
 +    case JSTYPE_FUNCTION:
-+        return false; // TODO allow iff CPOW
++        return false; // TODO allow iff CPOW?
 +    case JSTYPE_STRING:
 +        *to = nsString(JS_GetStringChars(JSVAL_TO_STRING(from)));
 +        return true;
@@ -1843,6 +1858,8 @@ new file mode 100644
 +    jsval GetJSVal(JSContext* cx) const {
 +        return OBJECT_TO_JSVAL(GetJSObject(cx));
 +    }
++
++    static const JSExtendedClass sCPOW_JSClass;    
 +    
 +protected:
 +
@@ -1853,8 +1870,6 @@ new file mode 100644
 +    mutable JSObject* mObj;
 +    ObjectWrapperParent const** const mObjSlotContents;
 +
-+    static const JSExtendedClass sCPOW_JSClass;
-+    
 +    static JSBool
 +    CPOW_AddProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
 +
