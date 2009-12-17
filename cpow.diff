@@ -937,7 +937,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,233 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
@@ -972,9 +972,7 @@ new file mode 100644
 +        {
 +            JSObject* obj;
 +            if (JS_ValueToObject(cx, from, &obj)) {
-+                // TODO get-or-create-ify this:
-+                PObjectWrapperChild* powc = Manager()->AllocPObjectWrapper(obj);
-+                *to = Manager()->SendPObjectWrapperConstructor(powc, false);
++                *to = Manager()->GetOrCreateWrapper(obj);
 +                return true;
 +            }
 +            return false;
@@ -1177,7 +1175,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,64 @@
 +#ifndef mozilla_jsipc_ObjectWrapperChild_h__
 +#define mozilla_jsipc_ObjectWrapperChild_h__
 +
@@ -1198,6 +1196,8 @@ new file mode 100644
 +    ObjectWrapperChild(JSContext* cx, JSObject* obj);
 +
 +    ~ObjectWrapperChild();
++
++    JSObject* GetJSObject() const { return mObj; }
 +    
 +private:
 +
@@ -1244,7 +1244,7 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonChild.h b/js/src/ipc/ObjectWrapperLi
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonChild.h
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,105 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1291,6 +1291,8 @@ new file mode 100644
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
 +#include "jsapi.h"
++#include "nsClassHashtable.h"
++#include "nsHashKeys.h"
 +
 +namespace mozilla {
 +namespace jsipc {
@@ -1300,30 +1302,48 @@ new file mode 100644
 +{
 +public:
 +
-+    ObjectWrapperLiaisonChild(JSContext* cx) : mContext(cx) {}
++    ObjectWrapperLiaisonChild(JSContext* cx)
++        : mContext(cx)
++    {
++        mResidentObjectTable.Init();
++    }
 +
-+    PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
-+        JSAutoRequest request(mContext);
-+        return new ObjectWrapperChild(mContext, obj);
++    PObjectWrapperChild* GetOrCreateWrapper(JSObject* obj,
++                                            bool attachAsGlobal = false)
++    {
++        PObjectWrapperChild* wrapper;
++        while (!mResidentObjectTable.Get(obj, &wrapper))
++            mResidentObjectTable.Put(obj, SendPObjectWrapperConstructor(AllocPObjectWrapper(obj),
++                                                                        attachAsGlobal));
++        return wrapper;
 +    }
 +    
-+private:
-+    
-+    JSContext* const mContext;
++    PObjectWrapperChild* GetOrCreateGlobalWrapper() {
++        return GetOrCreateWrapper(JS_GetGlobalObject(mContext), true);
++    }
 +    
 +protected:
 +
-+    PObjectWrapperChild* AllocPObjectWrapper(const bool& global) {
-+        NS_ASSERTION(global, "Telling lies to parent?");
-+        JSAutoRequest request(mContext);
-+        return new ObjectWrapperChild(mContext, JS_GetGlobalObject(mContext));
++    PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
++        return new ObjectWrapperChild(mContext, obj);
++    }
++    
++    PObjectWrapperChild* AllocPObjectWrapper(const bool&) {
++        return AllocPObjectWrapper(JS_GetGlobalObject(mContext));
 +    }
 +
-+    bool DeallocPObjectWrapper(PObjectWrapperChild* actor)
-+    {
-+        delete actor;
++    bool DeallocPObjectWrapper(PObjectWrapperChild* actor) {
++        ObjectWrapperChild* owc = static_cast<ObjectWrapperChild*>(actor);
++        mResidentObjectTable.Remove(owc->GetJSObject());
 +        return true;
 +    }
++
++private:
++    
++    JSContext* const mContext;
++
++    nsClassHashtable<nsPtrHashKey<JSObject>,
++                     PObjectWrapperChild> mResidentObjectTable;
 +
 +};
 +
@@ -1334,7 +1354,7 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperL
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,89 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1381,7 +1401,6 @@ new file mode 100644
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsapi.h"
-+#include "nsAutoJSValHolder.h"
 +
 +namespace mozilla {
 +namespace jsipc {
@@ -1398,25 +1417,19 @@ new file mode 100644
 +                                      NULL, 0));
 +    }
 +
-+protected:
-+
-+    void ActorDestroy(ActorDestroyReason why)
-+    {
-+        printf("Destroying actor %x via ActorDestroy...\n",
-+               (void*)this);
-+        fflush(0);
-+    }
-+
 +private:
 +
 +    ObjectWrapperParent* mGlobal;
 +
-+    PObjectWrapperParent* AllocPObjectWrapper(const bool& global)
++    PObjectWrapperParent* AllocPObjectWrapper(const bool&) {
++        return new ObjectWrapperParent();
++    }
++
++    bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
++                                       const bool& attachAsGlobal)
 +    {
-+        ObjectWrapperParent* owp = new ObjectWrapperParent();
-+        if (global)
-+            mGlobal = owp;
-+        return owp;
++        if (attachAsGlobal)
++            mGlobal = static_cast<ObjectWrapperParent*>(actor);
 +    }
 +
 +    bool DeallocPObjectWrapper(PObjectWrapperParent* actor)
@@ -2047,7 +2060,7 @@ new file mode 100644
 +    manages PObjectWrapper;
 +parent:
 +    __delete__();
-+    sync PObjectWrapper(bool global);
++    sync PObjectWrapper(bool attachAsGlobal);
 +};
 +
 +}}
