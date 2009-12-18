@@ -534,7 +534,7 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
  
      function handleMozAfterPaint(e) {
        return;
-@@ -72,23 +72,66 @@
+@@ -72,23 +72,71 @@
  
      function openWindow() {
        window.open('chrome://global/content/test-ipc.xul', '_blank', 'chrome,resizable,width=800,height=800');
@@ -561,12 +561,9 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 +    
 +    function iterate(obj) {
 +      alert("iterating");
-+      try {
-+        for (var k in obj)
-+          alert(k);
-+      } catch (x) {
-+        alert(x);
-+      }
++      for (var k in obj)
++        alert("key: " + k);
++      alert("done iterating");
 +    }
 +
 +    function navigate(child) {
@@ -580,10 +577,18 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 +    function show() {
 +      var child = getChildGlobal(),
 +          loc = child.location;
-+      resolve(loc, "href foo hash");
-+      alert(loc.href);
++      child.oyez = loc;
++      child.a = 1;
++      child.b = 2;
++      child.c = 3;
++      alert("child.oyez.href: " + child.oyez.href);
++      alert("oyez" in child);
++      iterate(child);
++      alert("href" in child.oyez);
++      //resolve(loc, "href foo hash");
++      //alert(loc.href);
 +      iterate(loc);
-+      navigate(child);
++      //navigate(child);
 +    }
    </script>
  
