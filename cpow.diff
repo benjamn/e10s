@@ -534,7 +534,7 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
  
      function handleMozAfterPaint(e) {
        return;
-@@ -72,23 +72,63 @@
+@@ -72,23 +72,66 @@
  
      function openWindow() {
        window.open('chrome://global/content/test-ipc.xul', '_blank', 'chrome,resizable,width=800,height=800');
@@ -553,12 +553,14 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 +    }
 +
 +    function resolve(obj, keys) {
++      alert("resolving");
 +      keys = keys.split(" ");
 +      for (var i = 0; i != keys.length; ++i)
 +        alert(obj[keys[i]]);
 +    }
 +    
 +    function iterate(obj) {
++      alert("iterating");
 +      try {
 +        for (var k in obj)
 +          alert(k);
@@ -568,6 +570,7 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 +    }
 +
 +    function navigate(child) {
++      alert("navigating");
 +      child.location = prompt("Where to?");
 +      setTimeout(function() {
 +        alert(child.location.href);
@@ -974,7 +977,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,365 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
@@ -1111,7 +1114,7 @@ new file mode 100644
 +}
 +
 +bool
-+ObjectWrapperChild::RecvAddProperty(const nsString& id)
++ObjectWrapperChild::AnswerAddProperty(const nsString& id)
 +{
 +    jsid interned_id;
 +
@@ -1189,11 +1192,11 @@ new file mode 100644
 +static const PRUint32 sNumNewEnumerateStateSlots = 2;
 +
 +static void
-+CPOW_NewEnumerateState_Finalize(JSContext* cx, JSObject* obj)
++CPOW_NewEnumerateState_Finalize(JSContext* cx, JSObject* state)
 +{
 +    jsval v;
 +    JSIdArray* ids;
-+    if (JS_GetReservedSlot(cx, obj, sIdArraySlot, &v) &&
++    if (JS_GetReservedSlot(cx, state, sIdArraySlot, &v) &&
 +        (ids = static_cast<JSIdArray*>(JSVAL_TO_PRIVATE(v))))
 +        JS_DestroyIdArray(cx, ids);
 +}
@@ -1239,7 +1242,7 @@ new file mode 100644
 +    if (!(ids = JS_Enumerate(mContext, mObj)) ||
 +        !(state = JS_NewObjectWithGivenProto(mContext, clasp, NULL, NULL)))
 +        return true;
-+    
++
 +    *idp = ids->length;
 +
 +    *ok = (JS_SetReservedSlot(mContext, state, sIdArraySlot,
@@ -1260,6 +1263,7 @@ new file mode 100644
 +    JSIdArray* ids;
 +    JSString* str;
 +
++    *ok = false;
 +    *statep = in_state;
 +    
 +    JSAutoRequest request(mContext);
@@ -1384,7 +1388,7 @@ new file mode 100644
 +
 +protected:
 +
-+    bool RecvAddProperty(const nsString& id);
++    bool AnswerAddProperty(const nsString& id);
 +
 +    bool AnswerGetProperty(const nsString& id,
 +                           bool* ok, JSVariant* vp);
@@ -1417,7 +1421,7 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonChild.h b/js/src/ipc/ObjectWrapperLi
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonChild.h
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,107 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1484,6 +1488,8 @@ new file mode 100644
 +    PObjectWrapperChild* GetOrCreateWrapper(JSObject* obj,
 +                                            bool attachAsGlobal = false)
 +    {
++        if (!obj)
++            return NULL;
 +        PObjectWrapperChild* wrapper;
 +        while (!mResidentObjectTable.Get(obj, &wrapper))
 +            mResidentObjectTable.Put(obj, SendPObjectWrapperConstructor(AllocPObjectWrapper(obj),
@@ -1833,7 +1839,7 @@ new file mode 100644
 +    if (!jsval_to_nsString(cx, id, &in_id))
 +        return JS_FALSE;
 +
-+    return self->SendAddProperty(in_id);
++    return self->CallAddProperty(in_id);
 +}    
 +
 +/*static*/ JSBool
@@ -2162,7 +2168,7 @@ new file mode 100644
 +child:
 +    __delete__(); // unroot
 +
-+    async AddProperty(nsString id);
++    rpc AddProperty(nsString id);
 +
 +    rpc GetProperty(nsString id)
 +        returns (bool ok,
