@@ -519,7 +519,7 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
 diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 --- a/dom/ipc/test.xul
 +++ b/dom/ipc/test.xul
-@@ -72,23 +72,41 @@
+@@ -72,23 +72,57 @@
  
      function openWindow() {
        window.open('chrome://global/content/test-ipc.xul', '_blank', 'chrome,resizable,width=800,height=800');
@@ -536,14 +536,30 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 +            .frameLoader.attachChildGlobal(page, "contentGlobalObject");
 +      return page.contentGlobalObject;
 +    }
-+    
-+    function show() {
-+      var child = getChildGlobal();
-+      alert(child.location.href);
++
++    function iterate(obj) {
++      try {
++        for (var k in obj)
++          alert(k);
++      } catch (x) {
++        alert(x);
++      }
++    }
++
++    function navigate(child) {
 +      child.location = prompt("Where to?");
 +      setTimeout(function() {
 +        alert(child.location.href);
 +      }, 2000);
++
++    }
++    
++    function show() {
++      var child = getChildGlobal(),
++          loc = child.location;
++      alert(loc.href);
++      iterate(loc);
++      navigate(child);
 +    }
    </script>
  
@@ -937,7 +953,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,343 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
@@ -960,6 +976,14 @@ new file mode 100644
 +}
 +
 +bool
++ObjectWrapperChild::JSObject_to_JSVariant(JSContext* cx, JSObject* from,
++                                          JSVariant* to)
++{
++    *to = Manager()->GetOrCreateWrapper(from);
++    return true;
++}
++
++bool
 +ObjectWrapperChild::jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to)
 +{
 +    switch (JS_TypeOfValue(cx, from)) {
@@ -967,16 +991,9 @@ new file mode 100644
 +        *to = void_t();
 +        return true;
 +    case JSTYPE_OBJECT:
-+        // fall through
++        return JSObject_to_JSVariant(cx, JSVAL_TO_OBJECT(from), to);
 +    case JSTYPE_FUNCTION:
-+        {
-+            JSObject* obj;
-+            if (JS_ValueToObject(cx, from, &obj)) {
-+                *to = Manager()->GetOrCreateWrapper(obj);
-+                return true;
-+            }
-+            return false;
-+        }
++        return false;
 +    case JSTYPE_STRING:
 +        *to = nsString(JS_GetStringChars(JSVAL_TO_STRING(from)));
 +        return true;
@@ -1001,6 +1018,21 @@ new file mode 100644
 +}
 +
 +/*static*/ bool
++ObjectWrapperChild::JSObject_from_JSVariant(JSContext* cx,
++                                            const JSVariant& from,
++                                            JSObject** to)
++{
++    if (from.type() != JSVariant::TPObjectWrapperChild)
++        return false;
++    if (!to)
++        return true;
++    const ObjectWrapperChild* owc =
++        static_cast<const ObjectWrapperChild*>(from.get_PObjectWrapperChild());
++    *to = owc ? owc->mObj : JSVAL_NULL;
++    return true;
++}
++
++/*static*/ bool
 +ObjectWrapperChild::jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
 +                                         jsval* to)
 +{
@@ -1010,12 +1042,12 @@ new file mode 100644
 +        return true;
 +    case JSVariant::TPObjectWrapperChild:
 +        {
-+            const PObjectWrapperChild* powc = from.get_PObjectWrapperChild();
-+            const ObjectWrapperChild* owc =
-+                static_cast<const ObjectWrapperChild*>(powc);
-+            *to = owc ? OBJECT_TO_JSVAL(owc->mObj) : JSVAL_NULL;
++            JSObject* obj;
++            if (!JSObject_from_JSVariant(cx, from, &obj))
++                return false;
++            *to = OBJECT_TO_JSVAL(obj);
++            return true;
 +        }
-+        return true;
 +    case JSVariant::TnsString:
 +        {
 +            const nsString& str = from.get_nsString();
@@ -1042,7 +1074,7 @@ new file mode 100644
 +        return false;
 +    }
 +}
-+
++    
 +ObjectWrapperLiaisonChild*
 +ObjectWrapperChild::Manager()
 +{
@@ -1130,30 +1162,124 @@ new file mode 100644
 +    return true;
 +}
 +
++static const PRUint32 sIdArraySlot = 0, sNextIdIndexSlot = 1;
++static const PRUint32 sNumNewEnumerateStateSlots = 2;
++
++static void
++CPOW_NewEnumerateState_Finalize(JSContext* cx, JSObject* obj)
++{
++    jsval v;
++    JSIdArray* ids;
++    if (JS_GetReservedSlot(cx, obj, sIdArraySlot, &v) &&
++        (ids = static_cast<JSIdArray*>(JSVAL_TO_PRIVATE(v))))
++        JS_DestroyIdArray(cx, ids);
++}
++
++// Similar to IteratorClass in XPCWrapper.cpp
++static const JSClass sCPOW_NewEnumerateState_JSClass = {
++    "CPOW NewEnumerate State",
++    JSCLASS_HAS_RESERVED_SLOTS(sNumNewEnumerateStateSlots),
++    JS_PropertyStub,  JS_PropertyStub,
++    JS_PropertyStub,  JS_PropertyStub,
++    JS_EnumerateStub, JS_ResolveStub,
++    JS_ConvertStub,   CPOW_NewEnumerateState_Finalize,
++    JSCLASS_NO_OPTIONAL_MEMBERS
++};
++
++#if 0
++bool
++ObjectWrapperChild::AnswerSomething(/* in-parameters */
++                                    /* out-parameters */)
++{
++    // variable declarations
++    // infallible failure initializations
++    JSAutoRequest request(mContext);
++    // validate in-parameters, or return false
++    // successfully perform local JS operations, or return true
++    // prepare out-parameters
++    return true;
++}
++#endif
++    
 +bool
 +ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
 +                                           bool* ok, JSVariant* statep, int* idp)
 +{
-+    return false;
++    JSIdArray* ids;
++    JSObject* state;
++    JSClass* clasp = const_cast<JSClass*>(&sCPOW_NewEnumerateState_JSClass);
++
++    *ok = false;
++
++    JSAutoRequest request(mContext);
++
++    if (!(ids = JS_Enumerate(mContext, mObj)) ||
++        !(state = JS_NewObjectWithGivenProto(mContext, clasp, NULL, NULL)))
++        return true;
++    
++    *idp = ids->length;
++
++    *ok = (JS_SetReservedSlot(mContext, state, sIdArraySlot,
++                              PRIVATE_TO_JSVAL(ids)) &&
++           JS_SetReservedSlot(mContext, state, sNextIdIndexSlot,
++                              JSVAL_ZERO) &&
++           JSObject_to_JSVariant(mContext, state, statep));
++
++    return true;
 +}
 +
 +bool
 +ObjectWrapperChild::AnswerNewEnumerateNext(const JSVariant& in_state,
 +                                           bool* ok, JSVariant* statep, nsString* idp)
 +{
-+    return false;
++    JSObject* state;
++    jsval v;
++    JSIdArray* ids;
++    JSString* str;
++
++    *statep = in_state;
++    
++    JSAutoRequest request(mContext);
++
++    if (!JSObject_from_JSVariant(mContext, in_state, &state) ||
++        !JS_GetReservedSlot(mContext, state, sIdArraySlot, &v) ||
++        !(ids = static_cast<JSIdArray*>(JSVAL_TO_PRIVATE(v))) ||
++        !JS_GetReservedSlot(mContext, state, sNextIdIndexSlot, &v))
++        return false;
++
++    int i = JSVAL_TO_INT(v);
++    if (i >= ids->length) {
++        *ok = true;
++        return JSObject_to_JSVariant(mContext, NULL, statep);
++    }
++
++    if (!JS_IdToValue(mContext, ids->vector[i], &v) ||
++        !(str = JS_ValueToString(mContext, v)))
++    {
++        *ok = false;
++        return true;
++    }
++
++    *idp = JS_GetStringChars(str);
++    *ok = JS_SetReservedSlot(mContext, state, sNextIdIndexSlot,
++                             INT_TO_JSVAL(i + 1));
++    return true;
 +}
 +    
 +bool
 +ObjectWrapperChild::RecvNewEnumerateDestroy(const JSVariant& in_state)
 +{
-+    return false;
++    JSObject* state;
++    JSAutoRequest request(mContext);
++    return (JSObject_from_JSVariant(mContext, in_state, &state) &&
++            JS_SetReservedSlot(mContext, state, sIdArraySlot, JSVAL_ZERO));
 +}
 +    
 +bool
 +ObjectWrapperChild::AnswerNewResolve(const nsString& id, const int& flags,
 +                                     bool* ok, PObjectWrapperChild** obj2)
 +{
++    // TODO WOO REWRITE THIS SHIT
 +    *ok = true;
 +    *obj2 = this;
 +    return true;
@@ -1175,7 +1301,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,69 @@
 +#ifndef mozilla_jsipc_ObjectWrapperChild_h__
 +#define mozilla_jsipc_ObjectWrapperChild_h__
 +
@@ -1204,9 +1330,14 @@ new file mode 100644
 +    JSContext* const mContext;
 +    JSObject* const mObj;
 +
++    bool JSObject_to_JSVariant(JSContext* cx, JSObject* from, JSVariant* to);
 +    bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
++
++    static bool JSObject_from_JSVariant(JSContext* cx, const JSVariant& from,
++                                        JSObject** to);
 +    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
 +                                     jsval* to);
++
 +    ObjectWrapperLiaisonChild* Manager();
 +
 +protected:
@@ -1354,7 +1485,7 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperL
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,90 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1428,6 +1559,7 @@ new file mode 100644
 +    bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
 +                                       const bool& attachAsGlobal)
 +    {
++        // TODO implement a notion of "reparenting"
 +        if (attachAsGlobal)
 +            mGlobal = static_cast<ObjectWrapperParent*>(actor);
 +    }
@@ -1448,7 +1580,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,379 @@
+@@ -0,0 +1,384 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsobj.h"
@@ -1480,10 +1612,10 @@ new file mode 100644
 +
 +    // JSExtendedClass initialization
 +    _::CPOW_Equality,
-+    nsnull,             // outerObject
-+    nsnull,             // innerObject
-+    _::CPOW_Iterator,
-+    nsnull,             // wrappedObject
++    nsnull, // outerObject
++    nsnull, // innerObject
++    nsnull, // iterator
++    nsnull, // wrappedObject
 +    JSCLASS_NO_RESERVED_MEMBERS
 +};
 +
@@ -1613,6 +1745,9 @@ new file mode 100644
 +static bool
 +jsid_from_int(JSContext* cx, int from, jsid* to)
 +{
++    // TODO check the outparams more generally
++    if (!to)
++        return true;
 +    jsval v = INT_TO_JSVAL(from);
 +    return JS_ValueToId(cx, v, to);
 +}
@@ -1620,6 +1755,8 @@ new file mode 100644
 +static bool
 +jsid_from_nsString(JSContext* cx, const nsString& from, jsid* to)
 +{
++    if (!to)
++        return true;
 +    JSString* str = JS_NewUCStringCopyZ(cx, from.BeginReading());
 +    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
 +}
@@ -1832,7 +1969,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,109 @@
 +#ifndef mozilla_jsipc_ObjectWrapperParent_h__
 +#define mozilla_jsipc_ObjectWrapperParent_h__
 +
@@ -1918,13 +2055,6 @@ new file mode 100644
 +        return JS_TRUE;
 +    }
 +
-+    static JSObject*
-+    CPOW_Iterator(JSContext *cx, JSObject *obj, JSBool keysonly)
-+    {
-+        printf("Calling CPOW_Iterator...\n"); fflush(0);
-+        return JSVAL_NULL;
-+    }
-+    
 +    static JSBool
 +    CPOW_toString(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
 +                  jsval *rval)
