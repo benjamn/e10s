@@ -976,9 +976,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,392 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
++
++#include "nsTArray.h"
 +
 +namespace mozilla {
 +namespace jsipc {
@@ -1104,6 +1106,17 @@ new file mode 100644
 +    PObjectWrapperLiaisonChild* powlc = PObjectWrapperChild::Manager();
 +    return static_cast<ObjectWrapperLiaisonChild*>(powlc);
 +}
++
++static bool
++jsid_to_nsString(JSContext* cx, jsid from, nsString* to)
++{
++    jsval v;
++    if (JS_IdToValue(cx, from, &v) && JSVAL_IS_STRING(v)) {
++        *to = JS_GetStringChars(JSVAL_TO_STRING(v));
++        return true;
++    }
++    return false;
++}
 +    
 +static bool
 +jsid_from_nsString(JSContext* cx, const nsString& from, jsid* to)
@@ -1227,6 +1240,20 @@ new file mode 100644
 +#endif
 +
 +bool
++ObjectWrapperChild::AnswerEnumerate(/* no in-parameters */
++                                    bool* ok, nsTArray<nsString>* ids)
++{
++    JSAutoRequest request(mContext);
++    JSIdArray* ida = JS_Enumerate(mContext, mObj);
++    if (!ids->SetCapacity(ida->length))
++        return false;
++    for (int i = 0; i < ida->length; ++i)
++        jsid_to_nsString(mContext, ida->vector[i], ids->AppendElement());
++    JS_DestroyIdArray(mContext, ida);
++    return true;
++}
++    
++bool
 +ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
 +                                           bool* ok, JSVariant* statep, int* idp)
 +{
@@ -1346,7 +1373,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,72 @@
 +#ifndef mozilla_jsipc_ObjectWrapperChild_h__
 +#define mozilla_jsipc_ObjectWrapperChild_h__
 +
@@ -1398,6 +1425,9 @@ new file mode 100644
 +    bool AnswerDelProperty(const nsString& id,
 +                           bool* ok, JSVariant* vp);
 +
++    bool AnswerEnumerate(/* no in-parameters */
++                         bool* ok, nsTArray<nsString>* ids);
++    
 +    bool AnswerNewEnumerateInit(/* no in-parameters */
 +                                bool* ok, JSVariant* statep, int* idp);
 +
@@ -1628,7 +1658,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,471 @@
+@@ -0,0 +1,494 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsobj.h"
@@ -1689,7 +1719,7 @@ new file mode 100644
 +      JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
 +      _::CPOW_AddProperty, _::CPOW_DelProperty,
 +      _::CPOW_GetProperty, _::CPOW_SetProperty,
-+      (JSEnumerateOp)_::CPOW_NewEnumerate,
++      _::CPOW_Enumerate,
 +      (JSResolveOp)_::CPOW_NewResolve,
 +      _::CPOW_Convert,     _::CPOW_Finalize,
 +      nsnull,              _::CPOW_CheckAccess,
@@ -1963,6 +1993,27 @@ new file mode 100644
 +            jsval_from_JSVariant(cx, out_v, vp));
 +}
 +
++/*static*/ JSBool
++ObjectWrapperParent::CPOW_Enumerate(JSContext* cx, JSObject* obj)
++{
++    ObjectWrapperParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;
++
++    bool out_ok;
++    nsTArray<nsString> out_ids;
++    
++    if (self->CallEnumerate(&out_ok, &out_ids) && out_ok) {
++        AutoResolveFlag arf(cx, obj);
++        for (PRUint32 i = 0; i < out_ids.Length(); i++)
++            JS_DefineUCProperty(cx, obj,
++                                out_ids.ElementAt(i).BeginReading(),
++                                out_ids.ElementAt(i).Length(),
++                                JSVAL_VOID, NULL, NULL, JSPROP_ENUMERATE);
++    }
++    return JS_TRUE;
++}
++
 +JSBool
 +ObjectWrapperParent::NewEnumerateInit(JSContext* cx, jsval* statep, jsid* idp)
 +{
@@ -2029,7 +2080,9 @@ new file mode 100644
 +        return self->NewEnumerateNext(cx, statep, idp);
 +    case JSENUMERATE_DESTROY:
 +        return self->NewEnumerateDestroy(cx, *statep);
-+    }       
++    }
++
++    return JS_FALSE;
 +}
 +    
 +/*static*/ JSBool
@@ -2104,7 +2157,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,114 @@
 +#ifndef mozilla_jsipc_ObjectWrapperParent_h__
 +#define mozilla_jsipc_ObjectWrapperParent_h__
 +
@@ -2154,6 +2207,8 @@ new file mode 100644
 +    static JSBool
 +    CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
 +
++    static JSBool CPOW_Enumerate(JSContext* cx, JSObject* obj);
++    
 +    JSBool NewEnumerateInit(JSContext* cx, jsval* statep, jsid* idp);
 +    JSBool NewEnumerateNext(JSContext* cx, jsval* statep, jsid* idp);
 +    JSBool NewEnumerateDestroy(JSContext* cx, jsval state);
@@ -2221,7 +2276,7 @@ diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,70 @@
 +include protocol "PObjectWrapperLiaison.ipdl";
 +
 +include "mozilla/jsipc/CPOWTypes.h";
@@ -2265,6 +2320,10 @@ new file mode 100644
 +        returns (bool ok,
 +                 JSVariant vp);
 +
++    rpc Enumerate()
++        returns (bool ok,
++                 nsString[] ids);
++                 
 +    rpc NewEnumerateInit()
 +        returns (bool ok,
 +                 JSVariant statep,
