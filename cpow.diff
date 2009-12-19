@@ -1658,7 +1658,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,495 @@
+@@ -0,0 +1,497 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsobj.h"
@@ -2007,6 +2007,8 @@ new file mode 100644
 +        AutoResolveFlag arf(cx, obj);
 +        jsid interned_id;
 +        for (PRUint32 i = 0; i < out_ids.Length(); i++)
++            // Apparently the enumerate hook gets used during GC (by
++            // jsCloseNativeIterator), which means we can't do any JS allocation!
 +            if (jsid_from_nsString(cx, out_ids.ElementAt(i), &interned_id))
 +                JS_DefinePropertyById(cx, obj, interned_id, JSVAL_VOID, NULL, NULL,
 +                                      JSPROP_ENUMERATE | JSPROP_SHARED);
