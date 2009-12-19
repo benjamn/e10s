@@ -1628,7 +1628,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,446 @@
+@@ -0,0 +1,471 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsobj.h"
@@ -1963,6 +1963,54 @@ new file mode 100644
 +            jsval_from_JSVariant(cx, out_v, vp));
 +}
 +
++JSBool
++ObjectWrapperParent::NewEnumerateInit(JSContext* cx, jsval* statep, jsid* idp)
++{
++    bool out_ok;
++    JSVariant out_state;
++    int out_id;
++
++    return (CallNewEnumerateInit(&out_ok, &out_state, &out_id) &&
++            out_ok &&
++            jsval_from_JSVariant(cx, out_state, statep) &&
++            jsid_from_int(cx, out_id, idp));
++}
++
++JSBool
++ObjectWrapperParent::NewEnumerateNext(JSContext* cx, jsval* statep, jsid* idp)
++{
++    JSVariant in_state;
++    if (!jsval_to_JSVariant(cx, *statep, &in_state))
++        return JS_FALSE;
++
++    bool out_ok;
++    JSVariant out_state;
++    nsString out_id;
++
++    if (CallNewEnumerateNext(in_state,
++                             &out_ok, &out_state, &out_id) &&
++        out_ok &&
++        jsval_from_JSVariant(cx, out_state, statep) &&
++        jsid_from_nsString(cx, out_id, idp))
++    {
++        JSObject* obj = GetJSObject(cx);
++        AutoResolveFlag arf(cx, obj);
++        return JS_DefinePropertyById(cx, obj, *idp, JSVAL_VOID, NULL, NULL,
++                                     JSPROP_ENUMERATE);
++    }
++    return JS_FALSE;
++}
++
++JSBool
++ObjectWrapperParent::NewEnumerateDestroy(JSContext* cx, jsval state)
++{
++    JSVariant in_state;
++    if (!jsval_to_JSVariant(cx, state, &in_state))
++        return JS_FALSE;
++
++    return SendNewEnumerateDestroy(in_state);
++}
++
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_NewEnumerate(JSContext *cx, JSObject *obj,
 +                                       JSIterateOp enum_op, jsval *statep,
@@ -1973,38 +2021,15 @@ new file mode 100644
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
 +        return JS_FALSE;    
-+    
-+    JSVariant in_state;
-+
-+    if ((enum_op == JSENUMERATE_NEXT ||
-+         enum_op == JSENUMERATE_DESTROY) &&
-+        !self->jsval_to_JSVariant(cx, *statep, &in_state))
-+        return JS_FALSE;
-+
-+    bool out_ok;
-+    JSVariant out_state;
 +
 +    switch (enum_op) {
-+    case JSENUMERATE_INIT: {
-+        int out_id;
-+        return (self->CallNewEnumerateInit(&out_ok, &out_state, &out_id) &&
-+                out_ok &&
-+                self->jsval_from_JSVariant(cx, out_state, statep) &&
-+                jsid_from_int(cx, out_id, idp));
-+    }
-+    case JSENUMERATE_NEXT: {
-+        nsString out_id;
-+        return (self->CallNewEnumerateNext(in_state,
-+                                           &out_ok, &out_state, &out_id) &&
-+                out_ok,
-+                self->jsval_from_JSVariant(cx, out_state, statep) &&
-+                jsid_from_nsString(cx, out_id, idp));
-+    }
++    case JSENUMERATE_INIT:
++        return self->NewEnumerateInit(cx, statep, idp);
++    case JSENUMERATE_NEXT:
++        return self->NewEnumerateNext(cx, statep, idp);
 +    case JSENUMERATE_DESTROY:
-+        return self->SendNewEnumerateDestroy(in_state);
-+    }
-+
-+    return JS_FALSE;
++        return self->NewEnumerateDestroy(cx, *statep);
++    }       
 +}
 +    
 +/*static*/ JSBool
@@ -2079,7 +2104,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,112 @@
 +#ifndef mozilla_jsipc_ObjectWrapperParent_h__
 +#define mozilla_jsipc_ObjectWrapperParent_h__
 +
@@ -2129,6 +2154,9 @@ new file mode 100644
 +    static JSBool
 +    CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
 +
++    JSBool NewEnumerateInit(JSContext* cx, jsval* statep, jsid* idp);
++    JSBool NewEnumerateNext(JSContext* cx, jsval* statep, jsid* idp);
++    JSBool NewEnumerateDestroy(JSContext* cx, jsval state);
 +    static JSBool
 +    CPOW_NewEnumerate(JSContext *cx, JSObject *obj, JSIterateOp enum_op,
 +                      jsval *statep, jsid *idp);
