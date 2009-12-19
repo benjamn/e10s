@@ -1246,11 +1246,11 @@ new file mode 100644
 +    JSAutoRequest request(mContext);
 +    JSIdArray* ida = JS_Enumerate(mContext, mObj);
 +    if (!ids->SetCapacity(ida->length))
-+        return false;
++        return *ok = false;
 +    for (int i = 0; i < ida->length; ++i)
 +        jsid_to_nsString(mContext, ida->vector[i], ids->AppendElement());
 +    JS_DestroyIdArray(mContext, ida);
-+    return true;
++    return *ok = true;
 +}
 +    
 +bool
