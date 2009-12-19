@@ -534,7 +534,7 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
  
      function handleMozAfterPaint(e) {
        return;
-@@ -72,23 +72,71 @@
+@@ -72,23 +72,64 @@
  
      function openWindow() {
        window.open('chrome://global/content/test-ipc.xul', '_blank', 'chrome,resizable,width=800,height=800');
@@ -575,20 +575,13 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 +    }
 +    
 +    function show() {
-+      var child = getChildGlobal(),
-+          loc = child.location;
-+      child.oyez = loc;
-+      child.a = 1;
-+      child.b = 2;
-+      child.c = 3;
-+      alert("child.oyez.href: " + child.oyez.href);
-+      alert("oyez" in child);
-+      iterate(child);
-+      alert("href" in child.oyez);
-+      //resolve(loc, "href foo hash");
-+      //alert(loc.href);
-+      iterate(loc);
-+      //navigate(child);
++      var child = getChildGlobal();
++      alert(child.location.href);
++      alert(child.location.hostname);
++      for (var k in child.location)
++        alert(k);
++      for (var k in child.foo)
++        alert(k + ": " + child.foo[k]);
 +    }
    </script>
  
@@ -603,7 +596,8 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 +    <toolbarbutton onclick="show()" label="CPOW"/>
    </toolbar>
  
-   <browser type="content" src="http://www.google.com/" flex="1" id="page" remote="true"
+-  <browser type="content" src="http://www.google.com/" flex="1" id="page" remote="true"
++  <browser type="content" src="http://people.mozilla.org/~bnewman/cpow/" flex="1" id="page" remote="true"
             onfocus="this.QueryInterface(Components.interfaces.nsIFrameLoaderOwner).frameLoader.activateRemoteFrame();"/>
  </window>
 diff --git a/ipc/ipdl/Makefile.in b/ipc/ipdl/Makefile.in
@@ -1231,7 +1225,7 @@ new file mode 100644
 +    return true;
 +}
 +#endif
-+    
++
 +bool
 +ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
 +                                           bool* ok, JSVariant* statep, int* idp)
@@ -1493,7 +1487,7 @@ new file mode 100644
 +    PObjectWrapperChild* GetOrCreateWrapper(JSObject* obj,
 +                                            bool attachAsGlobal = false)
 +    {
-+        if (!obj)
++        if (!obj) // Don't wrap nothin'!
 +            return NULL;
 +        PObjectWrapperChild* wrapper;
 +        while (!mResidentObjectTable.Get(obj, &wrapper))
@@ -1634,7 +1628,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,391 @@
+@@ -0,0 +1,446 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsobj.h"
@@ -1643,9 +1637,47 @@ new file mode 100644
 +namespace jsipc {
 +
 +namespace {
-+    static const PRUint32 sFlagsSlot = 0, sWrappedObjSlot = 1;
-+    static const PRUint32 sNumSlots = 2;
++
 +    typedef ObjectWrapperParent _;
++
++    static const uintN sFlagsSlot = 0, sWrappedObjSlot = 1;
++    static const uintN sNumSlots = 2;
++    static const uintN CPOW_FLAG_RESOLVING = 1;
++
++    class AutoResolveFlag
++    {
++        JSContext* mContext;
++        JSObject* mObj;
++        uintN mOldFlags;
++
++        static uintN GetFlags(JSContext* cx, JSObject* obj) {
++            jsval v;
++            if (JS_GetReservedSlot(cx, obj, sFlagsSlot, &v))
++                return JSVAL_TO_INT(v);
++            return 0;
++        }
++        static uintN SetFlags(JSContext* cx, JSObject* obj, uintN flags) {
++            uintN oldFlags = GetFlags(cx, obj);
++            if (oldFlags != flags)
++                JS_SetReservedSlot(cx, obj, sFlagsSlot, INT_TO_JSVAL(flags));
++            return oldFlags;
++        }
++    public:
++        AutoResolveFlag(JSContext* cx,
++                        JSObject* obj)
++            : mContext(cx)
++            , mObj(obj)
++            , mOldFlags(SetFlags(cx, obj, (GetFlags(cx, obj) |
++                                           CPOW_FLAG_RESOLVING)))
++        {}
++        ~AutoResolveFlag() {
++            SetFlags(mContext, mObj, mOldFlags);
++        }
++        static JSBool IsSet(JSContext* cx, JSObject* obj) {
++            return GetFlags(cx, obj) & CPOW_FLAG_RESOLVING;
++        }
++    };
++
 +}
 +
 +const JSExtendedClass _::sCPOW_JSClass = {
@@ -1707,7 +1739,13 @@ new file mode 100644
 +    if (!JS_GetReservedSlot(cx, obj, sWrappedObjSlot, &info))
 +        return NULL;
 +
-+    return *static_cast<ObjectWrapperParent**>(JSVAL_TO_PRIVATE(info));
++    ObjectWrapperParent* self =
++        *static_cast<ObjectWrapperParent**>(JSVAL_TO_PRIVATE(info));
++
++    NS_ASSERTION(!self || self->GetJSObject(cx) == obj,
++                 "Wrapper and wrapped object disagree?");
++    
++    return self;
 +}
 +
 +/*static*/ bool
@@ -1835,11 +1873,15 @@ new file mode 100644
 +{
 +    printf("Calling CPOW_AddProperty...\n"); fflush(0);
 +
++    // Unwrap always has to come first!
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
 +        return JS_FALSE;
 +
-+    nsString in_id;    
++    if (AutoResolveFlag::IsSet(cx, obj))
++        return JS_TRUE;
++    
++    nsString in_id;
 +
 +    if (!jsval_to_nsString(cx, id, &in_id))
 +        return JS_FALSE;
@@ -1983,14 +2025,21 @@ new file mode 100644
 +        return JS_FALSE;
 +
 +    bool out_ok;
-+    PObjectWrapperParent* out_obj;
-+    
++    PObjectWrapperParent* out_pobj;
++
 +    if (!self->CallNewResolve(in_id, flags,
-+                              &out_ok, &out_obj) ||
++                              &out_ok, &out_pobj) ||
 +        !out_ok ||
-+        !JSObject_from_PObjectWrapperParent(cx, out_obj, objp))
++        !JSObject_from_PObjectWrapperParent(cx, out_pobj, objp))
 +        return JS_FALSE;
 +
++    jsid interned_id;
++    if (*objp &&
++        JS_ValueToId(cx, id, &interned_id)) {
++        AutoResolveFlag arf(cx, *objp);
++        JS_DefinePropertyById(cx, *objp, interned_id, JSVAL_VOID, NULL, NULL,
++                              JSPROP_ENUMERATE);
++    }
 +    return JS_TRUE;
 +}
 +
