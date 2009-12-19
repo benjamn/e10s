@@ -1658,7 +1658,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,494 @@
+@@ -0,0 +1,495 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsobj.h"
@@ -2005,13 +2005,14 @@ new file mode 100644
 +    
 +    if (self->CallEnumerate(&out_ok, &out_ids) && out_ok) {
 +        AutoResolveFlag arf(cx, obj);
++        jsid interned_id;
 +        for (PRUint32 i = 0; i < out_ids.Length(); i++)
-+            JS_DefineUCProperty(cx, obj,
-+                                out_ids.ElementAt(i).BeginReading(),
-+                                out_ids.ElementAt(i).Length(),
-+                                JSVAL_VOID, NULL, NULL, JSPROP_ENUMERATE);
++            if (jsid_from_nsString(cx, out_ids.ElementAt(i), &interned_id))
++                JS_DefinePropertyById(cx, obj, interned_id, JSVAL_VOID, NULL, NULL,
++                                      JSPROP_ENUMERATE | JSPROP_SHARED);
++        return JS_TRUE;
 +    }
-+    return JS_TRUE;
++    return JS_FALSE;
 +}
 +
 +JSBool
