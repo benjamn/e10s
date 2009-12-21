@@ -534,7 +534,7 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
  
      function handleMozAfterPaint(e) {
        return;
-@@ -72,23 +72,64 @@
+@@ -72,23 +72,67 @@
  
      function openWindow() {
        window.open('chrome://global/content/test-ipc.xul', '_blank', 'chrome,resizable,width=800,height=800');
@@ -576,10 +576,13 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 +    
 +    function show() {
 +      var child = getChildGlobal();
-+      alert(child.location.href);
-+      alert(child.location.hostname);
++      //alert(child.location.href);
++      //alert(child.location.hostname);
++      alert(child.foo.f);
++      return;
 +      for (var k in child.location)
 +        alert(k);
++      return;
 +      for (var k in child.foo)
 +        alert(k + ": " + child.foo[k]);
 +    }
@@ -635,13 +638,13 @@ diff --git a/ipc/ipdl/test/cxx/Makefile.in b/ipc/ipdl/test/cxx/Makefile.in
  IPDLTESTS = \
 +  TestObjectWrapperLiaison \
    TestSanity  \
+   TestRPCErrorCleanup \
    TestLatency \
    TestRPCRaces \
    TestManyChildAllocs  \
    TestDesc \
    TestShmem \
    TestShutdown \
-   TestArrays \
 diff --git a/ipc/ipdl/test/cxx/PTestObjectWrapperLiaison.ipdl b/ipc/ipdl/test/cxx/PTestObjectWrapperLiaison.ipdl
 new file mode 100644
 --- /dev/null
@@ -832,9 +835,9 @@ new file mode 100644
 diff --git a/ipc/ipdl/test/cxx/ipdl.mk b/ipc/ipdl/test/cxx/ipdl.mk
 --- a/ipc/ipdl/test/cxx/ipdl.mk
 +++ b/ipc/ipdl/test/cxx/ipdl.mk
-@@ -8,9 +8,10 @@ IPDLSRCS =					\
-   PTestManyChildAllocs.ipdl			\
+@@ -9,9 +9,10 @@ IPDLSRCS =					\
    PTestManyChildAllocsSub.ipdl			\
+   PTestRPCErrorCleanup.ipdl			\
    PTestRPCRaces.ipdl				\
    PTestSanity.ipdl				\
    PTestShmem.ipdl				\
@@ -976,7 +979,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,392 @@
+@@ -0,0 +1,414 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
@@ -1257,17 +1260,29 @@ new file mode 100644
 +ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
 +                                           bool* ok, JSVariant* statep, int* idp)
 +{
-+    JSIdArray* ids;
-+    JSObject* state;
-+    JSClass* clasp = const_cast<JSClass*>(&sCPOW_NewEnumerateState_JSClass);
-+
 +    *ok = false;
 +
 +    JSAutoRequest request(mContext);
 +
-+    if (!(ids = JS_Enumerate(mContext, mObj)) ||
-+        !(state = JS_NewObjectWithGivenProto(mContext, clasp, NULL, NULL)))
-+        return true;
++    JSClass* clasp = const_cast<JSClass*>(&sCPOW_NewEnumerateState_JSClass);
++    JSObject* state = JS_NewObjectWithGivenProto(mContext, clasp, NULL, NULL);
++    if (!state)
++        return false;
++    
++    for (JSObject* proto = mObj;
++         proto;
++         proto = JS_GetPrototype(mContext, proto))
++    {
++        JSIdArray* ids = JS_Enumerate(mContext, proto);
++        for (jsint i = 0; i < ids->length; ++i)
++            JS_DefinePropertyById(mContext, state, ids->vector[i], JSVAL_VOID,
++                                  NULL, NULL, JSPROP_ENUMERATE | JSPROP_SHARED);
++        JS_DestroyIdArray(mContext, ids);
++    }
++
++    JSIdArray* ids = JS_Enumerate(mContext, state);
++    if (!ids)
++        return false;
 +
 +    *idp = ids->length;
 +
@@ -1327,7 +1342,17 @@ new file mode 100644
 +    return (JSObject_from_JSVariant(mContext, in_state, &state) &&
 +            JS_SetReservedSlot(mContext, state, sIdArraySlot, JSVAL_ZERO));
 +}
-+    
++
++bool
++ObjectWrapperChild::AnswerIterator(/* no in-parameters */
++                                   PObjectWrapperChild** iterator)
++{
++    JSAutoRequest request(mContext);
++    JSObject* iterObj = JS_NewPropertyIterator(mContext, mObj);
++    *iterator = Manager()->GetOrCreateWrapper(iterObj);
++    return true;
++}
++
 +bool
 +ObjectWrapperChild::AnswerNewResolve(const nsString& id, const int& flags,
 +                                     bool* ok, PObjectWrapperChild** obj2)
@@ -1373,7 +1398,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,75 @@
 +#ifndef mozilla_jsipc_ObjectWrapperChild_h__
 +#define mozilla_jsipc_ObjectWrapperChild_h__
 +
@@ -1436,6 +1461,9 @@ new file mode 100644
 +
 +    bool RecvNewEnumerateDestroy(const JSVariant& in_state);
 +
++    bool AnswerIterator(/* no in-parameters */
++                        PObjectWrapperChild** iterator);
++    
 +    bool AnswerNewResolve(const nsString& id, const int& flags,
 +                          bool* ok, PObjectWrapperChild** obj2);
 +
@@ -1658,7 +1686,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,497 @@
+@@ -0,0 +1,514 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsobj.h"
@@ -1719,7 +1747,7 @@ new file mode 100644
 +      JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
 +      _::CPOW_AddProperty, _::CPOW_DelProperty,
 +      _::CPOW_GetProperty, _::CPOW_SetProperty,
-+      _::CPOW_Enumerate,
++      (JSEnumerateOp)_::CPOW_NewEnumerate,
 +      (JSResolveOp)_::CPOW_NewResolve,
 +      _::CPOW_Convert,     _::CPOW_Finalize,
 +      nsnull,              _::CPOW_CheckAccess,
@@ -1732,7 +1760,7 @@ new file mode 100644
 +    _::CPOW_Equality,
 +    nsnull, // outerObject
 +    nsnull, // innerObject
-+    nsnull, // iterator
++    nsnull, //_::CPOW_Iterator,
 +    nsnull, // wrappedObject
 +    JSCLASS_NO_RESERVED_MEMBERS
 +};
@@ -2008,7 +2036,7 @@ new file mode 100644
 +        jsid interned_id;
 +        for (PRUint32 i = 0; i < out_ids.Length(); i++)
 +            // Apparently the enumerate hook gets used during GC (by
-+            // jsCloseNativeIterator), which means we can't do any JS allocation!
++            // js_CloseNativeIterator), so we can't do any JS allocation!
 +            if (jsid_from_nsString(cx, out_ids.ElementAt(i), &interned_id))
 +                JS_DefinePropertyById(cx, obj, interned_id, JSVAL_VOID, NULL, NULL,
 +                                      JSPROP_ENUMERATE | JSPROP_SHARED);
@@ -2087,6 +2115,23 @@ new file mode 100644
 +
 +    return JS_FALSE;
 +}
++
++/*static*/ JSObject*
++ObjectWrapperParent::CPOW_Iterator(JSContext *cx, JSObject *obj,
++                                   JSBool keysonly)
++{
++    printf("Calling CPOW_Iterator...\n"); fflush(0);
++    
++    ObjectWrapperParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;
++
++    PObjectWrapperParent* iterator;
++    if (self->CallIterator(&iterator) && iterator)
++        return static_cast<ObjectWrapperParent*>(iterator)->GetJSObject(cx);
++
++    return JSVAL_NULL;
++}
 +    
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_NewResolve(JSContext *cx, JSObject *obj, jsval id,
@@ -2160,7 +2205,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,117 @@
 +#ifndef mozilla_jsipc_ObjectWrapperParent_h__
 +#define mozilla_jsipc_ObjectWrapperParent_h__
 +
@@ -2219,6 +2264,9 @@ new file mode 100644
 +    CPOW_NewEnumerate(JSContext *cx, JSObject *obj, JSIterateOp enum_op,
 +                      jsval *statep, jsid *idp);
 +
++    static JSObject*
++    CPOW_Iterator(JSContext *cx, JSObject *obj, JSBool keysonly);
++    
 +    static JSBool
 +    CPOW_NewResolve(JSContext *cx, JSObject *obj, jsval id, uintN flags,
 +                    JSObject **objp);
@@ -2279,7 +2327,7 @@ diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,73 @@
 +include protocol "PObjectWrapperLiaison.ipdl";
 +
 +include "mozilla/jsipc/CPOWTypes.h";
@@ -2339,6 +2387,9 @@ new file mode 100644
 +
 +    async NewEnumerateDestroy(JSVariant in_state);
 +
++    rpc Iterator()
++        returns (PObjectWrapper iterator);
++    
 +    rpc NewResolve(nsString id,
 +                   int flags)
 +        returns (bool ok,
