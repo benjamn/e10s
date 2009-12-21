@@ -576,13 +576,13 @@ diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
 +    
 +    function show() {
 +      var child = getChildGlobal();
-+      //alert(child.location.href);
-+      //alert(child.location.hostname);
-+      alert(child.foo.f);
-+      return;
++      alert(child.foo.f(2));
++      var fn = child.foo.f;
++      alert(fn.call.call(fn, child, 3));
++      alert(child.location.href);
++      alert(child.location.hostname);
 +      for (var k in child.location)
 +        alert(k);
-+      return;
 +      for (var k in child.foo)
 +        alert(k + ": " + child.foo[k]);
 +    }
@@ -979,7 +979,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,414 @@
+@@ -0,0 +1,453 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
@@ -1019,9 +1019,13 @@ new file mode 100644
 +        *to = void_t();
 +        return true;
 +    case JSTYPE_OBJECT:
-+        return JSObject_to_JSVariant(cx, JSVAL_TO_OBJECT(from), to);
 +    case JSTYPE_FUNCTION:
-+        return false;
++        {
++            JSObject* obj;
++            if (!JS_ValueToObject(cx, from, &obj))
++                return false;
++            return JSObject_to_JSVariant(cx, obj, to);
++        }
 +    case JSTYPE_STRING:
 +        *to = nsString(JS_GetStringChars(JSVAL_TO_STRING(from)));
 +        return true;
@@ -1029,7 +1033,7 @@ new file mode 100644
 +        if (JSVAL_IS_INT(from))
 +            *to = JSVAL_TO_INT(from);
 +        else if (JSVAL_IS_DOUBLE(from))
-+            *to = JSVAL_TO_DOUBLE(from);
++            *to = *JSVAL_TO_DOUBLE(from);
 +        else return false;
 +        return true;
 +    case JSTYPE_BOOLEAN:
@@ -1046,18 +1050,27 @@ new file mode 100644
 +}
 +
 +/*static*/ bool
++ObjectWrapperChild::
++JSObject_from_PObjectWrapperChild(JSContext*,
++                                  const PObjectWrapperChild* from,
++                                  JSObject** to)
++{
++    const ObjectWrapperChild* owc =
++        static_cast<const ObjectWrapperChild*>(from);
++    *to = owc ? owc->mObj : JSVAL_NULL;
++    return true;
++}
++    
++/*static*/ bool
 +ObjectWrapperChild::JSObject_from_JSVariant(JSContext* cx,
 +                                            const JSVariant& from,
 +                                            JSObject** to)
 +{
 +    if (from.type() != JSVariant::TPObjectWrapperChild)
 +        return false;
-+    if (!to)
-+        return true;
-+    const ObjectWrapperChild* owc =
-+        static_cast<const ObjectWrapperChild*>(from.get_PObjectWrapperChild());
-+    *to = owc ? owc->mObj : JSVAL_NULL;
-+    return true;
++    return JSObject_from_PObjectWrapperChild(cx,
++                                             from.get_PObjectWrapperChild(),
++                                             to);
 +}
 +
 +/*static*/ bool
@@ -1138,8 +1151,8 @@ new file mode 100644
 +    if (!jsid_from_nsString(mContext, id, &interned_id))
 +        return false;
 +    
-+    JS_DefinePropertyById(mContext, mObj, interned_id,
-+                          JSVAL_ZERO, NULL, NULL, 0);
++    JS_DefinePropertyById(mContext, mObj, interned_id, JSVAL_VOID,
++                          NULL, NULL, 0);
 +    return true;
 +}
 +
@@ -1159,7 +1172,7 @@ new file mode 100644
 +
 +    *ok = JS_GetPropertyById(mContext, mObj, interned_id, &val);
 +
-+    return jsval_to_JSVariant(mContext, val, vp);
++    return jsval_to_JSVariant(mContext, *ok ? val : JSVAL_VOID, vp);
 +}
 +
 +bool
@@ -1180,7 +1193,7 @@ new file mode 100644
 +
 +    *ok = JS_SetPropertyById(mContext, mObj, interned_id, &val);
 +
-+    return jsval_to_JSVariant(mContext, val, vp);
++    return jsval_to_JSVariant(mContext, *ok ? val : JSVAL_VOID, vp);
 +}
 +
 +bool
@@ -1188,7 +1201,7 @@ new file mode 100644
 +                                      bool* ok, JSVariant* vp)
 +{
 +    jsid interned_id;
-+    jsval v;
++    jsval val;
 +
 +    *ok = false;
 +
@@ -1197,10 +1210,9 @@ new file mode 100644
 +    if (!jsid_from_nsString(mContext, id, &interned_id))
 +        return false;
 +
-+    if ((*ok = JS_DeletePropertyById2(mContext, mObj, interned_id, &v)))
-+        return jsval_to_JSVariant(mContext, v, vp);
++    *ok = JS_DeletePropertyById2(mContext, mObj, interned_id, &val);
 +
-+    return true;
++    return jsval_to_JSVariant(mContext, *ok ? val : JSVAL_VOID, vp);
 +}
 +
 +static const PRUint32 sIdArraySlot = 0, sNextIdIndexSlot = 1;
@@ -1261,6 +1273,7 @@ new file mode 100644
 +                                           bool* ok, JSVariant* statep, int* idp)
 +{
 +    *ok = false;
++    *idp = 0;
 +
 +    JSAutoRequest request(mContext);
 +
@@ -1306,6 +1319,7 @@ new file mode 100644
 +
 +    *ok = false;
 +    *statep = in_state;
++    *idp = EmptyString();
 +    
 +    JSAutoRequest request(mContext);
 +
@@ -1388,9 +1402,34 @@ new file mode 100644
 +{
 +    jsval v;
 +    JSAutoRequest request(mContext);
-+    *ok = (JS_ConvertValue(mContext, OBJECT_TO_JSVAL(mObj), type, &v) &&
-+           jsval_to_JSVariant(mContext, v, vp));
-+    return true;
++    *ok = JS_ConvertValue(mContext, OBJECT_TO_JSVAL(mObj), type, &v);
++    return jsval_to_JSVariant(mContext, *ok ? v : JSVAL_VOID, vp);
++}
++
++bool
++ObjectWrapperChild::AnswerCall(PObjectWrapperChild* receiver, const nsTArray<JSVariant>& argv,
++                               bool* ok, JSVariant* rval)
++{
++    *ok = false;
++    
++    JSAutoRequest request(mContext);
++
++    JSObject* obj;
++    if (!JSObject_from_PObjectWrapperChild(mContext, receiver, &obj))
++        return false;
++
++    jsval rv, args[argv.Length()];
++    for (PRUint32 i = 0; i < argv.Length(); ++i)
++        if (!jsval_from_JSVariant(mContext, argv.ElementAt(i), args + i))
++            return false;
++
++    JSFunction* callee = JS_ValueToFunction(mContext, OBJECT_TO_JSVAL(mObj));
++    if (!callee)
++        return true;
++
++    *ok = JS_CallFunction(mContext, obj, callee, argv.Length(), args, &rv);
++
++    return jsval_to_JSVariant(mContext, *ok ? rv : JSVAL_VOID, rval);
 +}
 +
 +}}
@@ -1398,7 +1437,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,81 @@
 +#ifndef mozilla_jsipc_ObjectWrapperChild_h__
 +#define mozilla_jsipc_ObjectWrapperChild_h__
 +
@@ -1430,6 +1469,9 @@ new file mode 100644
 +    bool JSObject_to_JSVariant(JSContext* cx, JSObject* from, JSVariant* to);
 +    bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
 +
++    static bool JSObject_from_PObjectWrapperChild(JSContext* cx,
++                                                  const PObjectWrapperChild* from,
++                                                  JSObject** to);
 +    static bool JSObject_from_JSVariant(JSContext* cx, const JSVariant& from,
 +                                        JSObject** to);
 +    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
@@ -1469,6 +1511,9 @@ new file mode 100644
 +
 +    bool AnswerConvert(const JSType& type,
 +                       bool* ok, JSVariant* vp);
++
++    bool AnswerCall(PObjectWrapperChild* receiver, const nsTArray<JSVariant>& argv,
++                    bool* ok, JSVariant* rval);
 +};
 +
 +}}
@@ -1686,7 +1731,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,514 @@
+@@ -0,0 +1,554 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsobj.h"
@@ -1747,11 +1792,11 @@ new file mode 100644
 +      JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
 +      _::CPOW_AddProperty, _::CPOW_DelProperty,
 +      _::CPOW_GetProperty, _::CPOW_SetProperty,
-+      (JSEnumerateOp)_::CPOW_NewEnumerate,
-+      (JSResolveOp)_::CPOW_NewResolve,
++           (JSEnumerateOp) _::CPOW_NewEnumerate,
++             (JSResolveOp) _::CPOW_NewResolve,
 +      _::CPOW_Convert,     _::CPOW_Finalize,
 +      nsnull,              _::CPOW_CheckAccess,
-+      nsnull,              nsnull,
++      _::CPOW_Call,        nsnull,
 +      nsnull,              _::CPOW_HasInstance,
 +      nsnull,              nsnull
 +    },
@@ -1760,7 +1805,7 @@ new file mode 100644
 +    _::CPOW_Equality,
 +    nsnull, // outerObject
 +    nsnull, // innerObject
-+    nsnull, //_::CPOW_Iterator,
++    nsnull, // _::CPOW_Iterator,
 +    nsnull, // wrappedObject
 +    JSCLASS_NO_RESERVED_MEMBERS
 +};
@@ -1816,10 +1861,10 @@ new file mode 100644
 +        return true;
 +    case JSTYPE_OBJECT:
 +        {
-+            ObjectWrapperParent* owp = Unwrap(cx, JSVAL_TO_OBJECT(from));
-+            if (!owp)
++            PObjectWrapperParent* powp;
++            if (!JSObject_to_PObjectWrapperParent(cx, JSVAL_TO_OBJECT(from), &powp))
 +                return false;
-+            *to = owp;
++            *to = powp;
 +            return true;
 +        }
 +    case JSTYPE_FUNCTION:
@@ -1831,7 +1876,7 @@ new file mode 100644
 +        if (JSVAL_IS_INT(from))
 +            *to = JSVAL_TO_INT(from);
 +        else if (JSVAL_IS_DOUBLE(from))
-+            *to = JSVAL_TO_DOUBLE(from);
++            *to = *JSVAL_TO_DOUBLE(from);
 +        else return false;
 +        return true;
 +    case JSTYPE_BOOLEAN:
@@ -1878,6 +1923,18 @@ new file mode 100644
 +    default:
 +        return false;
 +    }
++}
++
++/*static*/ bool
++ObjectWrapperParent::
++JSObject_to_PObjectWrapperParent(JSContext* cx, JSObject* from,
++                                 PObjectWrapperParent** to)
++{
++    ObjectWrapperParent* owp = Unwrap(cx, from);
++    if (!owp)
++        return false;
++    *to = owp;
++    return true;
 +}
 +
 +/*static*/ bool
@@ -2191,13 +2248,41 @@ new file mode 100644
 +/*static*/ void
 +ObjectWrapperParent::CPOW_Finalize(JSContext* cx, JSObject* obj)
 +{
-+    ObjectWrapperParent* self = Unwrap(cx, obj);
-+
 +    printf("Calling CPOW_Finalize...\n");
 +    fflush(0);
 +    
-+    if (self) // disable for now
++    ObjectWrapperParent* self = Unwrap(cx, obj);
++    if (self)
 +        ObjectWrapperParent::Send__delete__(self);
++}
++
++/*static*/ JSBool
++ObjectWrapperParent::CPOW_Call(JSContext* cx, JSObject* obj, uintN argc,
++                               jsval* argv, jsval* rval)
++{
++    printf("Calling CPOW_Call...\n"); fflush(0);
++
++    ObjectWrapperParent* in_receiver = Unwrap(cx, obj);
++    if (!in_receiver)
++        return JS_FALSE;
++    
++    ObjectWrapperParent* function =
++        Unwrap(cx, JSVAL_TO_OBJECT(JS_ARGV_CALLEE(argv)));
++    if (!function)
++        return JS_FALSE;
++
++    nsTArray<JSVariant> in_argv(argc);
++    for (uintN i = 0; i < argc; i++)
++        if (!jsval_to_JSVariant(cx, argv[i], in_argv.AppendElement()))
++            return JS_FALSE;
++    
++    bool out_ok;
++    JSVariant out_rval;
++
++    return (function->CallCall(in_receiver, in_argv,
++                               &out_ok, &out_rval) &&
++            out_ok &&
++            jsval_from_JSVariant(cx, out_rval, rval));
 +}
 +
 +}}
@@ -2205,7 +2290,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,124 @@
 +#ifndef mozilla_jsipc_ObjectWrapperParent_h__
 +#define mozilla_jsipc_ObjectWrapperParent_h__
 +
@@ -2286,6 +2371,10 @@ new file mode 100644
 +    }
 +
 +    static JSBool
++    CPOW_Call(JSContext* cx, JSObject* obj, uintN argc, jsval* argv,
++              jsval* rval);
++    
++    static JSBool
 +    CPOW_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
 +    {
 +        printf("Calling CPOW_HasInstance...\n"); fflush(0);
@@ -2315,6 +2404,9 @@ new file mode 100644
 +    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
 +                                     jsval* to);
 +    static bool
++    JSObject_to_PObjectWrapperParent(JSContext* cx, JSObject* from,
++                                     PObjectWrapperParent** to);
++    static bool
 +    JSObject_from_PObjectWrapperParent(JSContext* cx,
 +                                       const PObjectWrapperParent* from,
 +                                       JSObject** to);
@@ -2327,7 +2419,7 @@ diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,78 @@
 +include protocol "PObjectWrapperLiaison.ipdl";
 +
 +include "mozilla/jsipc/CPOWTypes.h";
@@ -2398,6 +2490,11 @@ new file mode 100644
 +    rpc Convert(JSType type)
 +        returns (bool ok,
 +                 JSVariant vp);
++
++    rpc Call(PObjectWrapper receiver,
++             JSVariant[] argv)
++        returns (bool ok,
++                 JSVariant rval);
 +};
 +
 +}}
