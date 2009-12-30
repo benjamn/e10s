@@ -982,7 +982,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,466 @@
+@@ -0,0 +1,484 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
@@ -1428,7 +1428,7 @@ new file mode 100644
 +
 +    JSFunction* callee = JS_ValueToFunction(mContext, OBJECT_TO_JSVAL(mObj));
 +    if (!callee)
-+        return true;
++        return jsval_to_JSVariant(mContext, JSVAL_VOID, rval);
 +
 +    *ok = JS_CallFunction(mContext, obj, callee, argv.Length(), args, &rv);
 +
@@ -1437,15 +1437,33 @@ new file mode 100644
 +
 +bool
 +ObjectWrapperChild::AnswerConstruct(const nsTArray<JSVariant>& argv,
-+                                    bool* ok, JSVariant* rval)
++                                    bool* ok, PObjectWrapperChild** rval)
 +{
-+    *ok = false;
-+
 +    JSAutoRequest request(mContext);
 +
-+    
-+    
-+    return true;
++    JSClass* clasp = NULL;
++    JSObject* pobj = JSVAL_NULL;
++    {
++        jsval pval;
++        if (JS_GetProperty(mContext, mObj, "prototype", &pval) &&
++            JSVAL_IS_OBJECT(pval))
++        {
++            pobj = JSVAL_TO_OBJECT(pval);
++            clasp = JS_GetClass(mContext, pobj);
++        }
++    }
++    JSObject* obj = JS_NewObject(mContext, clasp, pobj, NULL);
++    PObjectWrapperChild* wrapper = Manager()->GetOrCreateWrapper(obj);
++
++    JSVariant override;
++    bool answer = AnswerCall(*rval = wrapper,
++                             argv, ok, &override);
++    if (answer &&
++        override.type() == JSVariant::TPObjectWrapperChild &&
++        (wrapper = override.get_PObjectWrapperChild()))
++        *rval = wrapper;
++
++    return answer;
 +}
 +
 +}}
@@ -1453,7 +1471,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,83 @@
 +#ifndef mozilla_jsipc_ObjectWrapperChild_h__
 +#define mozilla_jsipc_ObjectWrapperChild_h__
 +
@@ -1472,7 +1490,6 @@ new file mode 100644
 +public:
 +
 +    ObjectWrapperChild(JSContext* cx, JSObject* obj);
-+
 +    ~ObjectWrapperChild();
 +
 +    JSObject* GetJSObject() const { return mObj; }
@@ -1532,7 +1549,7 @@ new file mode 100644
 +                    bool* ok, JSVariant* rval);
 +
 +    bool AnswerConstruct(const nsTArray<JSVariant>& argv,
-+                         bool* ok, JSVariant* rval);
++                         bool* ok, PObjectWrapperChild** rval);
 +};
 +
 +}}
@@ -1750,7 +1767,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,559 @@
+@@ -0,0 +1,582 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsobj.h"
@@ -1916,13 +1933,7 @@ new file mode 100644
 +        *to = JSVAL_VOID;
 +        return true;
 +    case JSVariant::TPObjectWrapperParent:
-+        {
-+            JSObject* obj;
-+            if (!JSObject_from_PObjectWrapperParent(cx, from.get_PObjectWrapperParent(), &obj))
-+                return false;
-+            *to = OBJECT_TO_JSVAL(obj);
-+            return true;
-+        }
++        return jsval_from_PObjectWrapperParent(cx, from.get_PObjectWrapperParent(), to);
 +    case JSVariant::TnsString:
 +        *to = STRING_TO_JSVAL(JS_NewUCStringCopyZ(cx, from.get_nsString().BeginReading()));
 +        return true;
@@ -1965,6 +1976,19 @@ new file mode 100644
 +    *to = owp
 +        ? owp->GetJSObject(cx)
 +        : JSVAL_TO_OBJECT(JSVAL_NULL);
++    return true;
++}
++
++/*static*/ bool
++ObjectWrapperParent::
++jsval_from_PObjectWrapperParent(JSContext* cx,
++                                const PObjectWrapperParent* from,
++                                jsval* to)
++{
++    JSObject* obj;
++    if (!JSObject_from_PObjectWrapperParent(cx, from, &obj))
++        return false;
++    *to = OBJECT_TO_JSVAL(obj);
 +    return true;
 +}
 +    
@@ -2279,8 +2303,8 @@ new file mode 100644
 +{
 +    printf("Calling CPOW_Call...\n"); fflush(0);
 +
-+    ObjectWrapperParent* in_receiver = Unwrap(cx, obj);
-+    if (!in_receiver)
++    ObjectWrapperParent* receiver = Unwrap(cx, obj);
++    if (!receiver)
 +        return JS_FALSE;
 +    
 +    ObjectWrapperParent* function =
@@ -2296,7 +2320,7 @@ new file mode 100644
 +    bool out_ok;
 +    JSVariant out_rval;
 +
-+    return (function->CallCall(in_receiver, in_argv,
++    return (function->CallCall(receiver, in_argv,
 +                               &out_ok, &out_rval) &&
 +            out_ok &&
 +            jsval_from_JSVariant(cx, out_rval, rval));
@@ -2306,7 +2330,23 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_Construct(JSContext *cx, JSObject *obj, uintN argc,
 +                                    jsval *argv, jsval *rval)
 +{
-+    return JS_FALSE;
++    ObjectWrapperParent* constructor =
++        Unwrap(cx, JSVAL_TO_OBJECT(JS_ARGV_CALLEE(argv)));
++    if (!constructor)
++        return JS_FALSE;
++
++    nsTArray<JSVariant> in_argv(argc);
++    for (uintN i = 0; i < argc; i++)
++        if (!jsval_to_JSVariant(cx, argv[i], in_argv.AppendElement()))
++            return JS_FALSE;
++
++    bool out_ok;
++    PObjectWrapperParent* out_powp;
++
++    return (constructor->CallConstruct(in_argv,
++                                       &out_ok, &out_powp) &&
++            out_ok &&
++            jsval_from_PObjectWrapperParent(cx, out_powp, rval));
 +}
 +
 +}}
@@ -2314,7 +2354,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,120 @@
 +#ifndef mozilla_jsipc_ObjectWrapperParent_h__
 +#define mozilla_jsipc_ObjectWrapperParent_h__
 +
@@ -2426,6 +2466,10 @@ new file mode 100644
 +    JSObject_from_PObjectWrapperParent(JSContext* cx,
 +                                       const PObjectWrapperParent* from,
 +                                       JSObject** to);
++    static bool
++    jsval_from_PObjectWrapperParent(JSContext* cx,
++                                    const PObjectWrapperParent* from,
++                                    jsval* to);
 +};
 +
 +}}
@@ -2514,7 +2558,7 @@ new file mode 100644
 +
 +    rpc Construct(JSVariant[] argv)
 +        returns (bool ok,
-+                 JSVariant rval);
++                 PObjectWrapper rval);
 +};
 +
 +}}
