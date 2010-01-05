@@ -1,0 +1,70 @@
+diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
+--- a/js/src/ipc/Makefile.in
++++ b/js/src/ipc/Makefile.in
+@@ -58,13 +58,17 @@ EXPORTS_mozilla/jsipc = \
+   ObjectWrapperChild.h \
+   $(NULL)
+ 
+ CPPSRCS = \
+   ObjectWrapperParent.cpp \
+   ObjectWrapperChild.cpp \
+   $(NULL)
+ 
++ifdef ENABLE_TESTS
++DIRS += tests
++endif
++
+ include $(topsrcdir)/config/config.mk
+ include $(topsrcdir)/ipc/chromium/chromium-config.mk
+ include $(topsrcdir)/config/rules.mk
+ 
+ DEFINES += -DBIN_SUFFIX='"$(BIN_SUFFIX)"'
+diff --git a/js/src/ipc/tests/Makefile.in b/js/src/ipc/tests/Makefile.in
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/tests/Makefile.in
+@@ -0,0 +1,20 @@
++DEPTH = ../../../..
++topsrcdir = @top_srcdir@
++srcdir = @srcdir@
++VPATH = @srcdir@
++
++include $(DEPTH)/config/autoconf.mk
++
++MODULE = test_jsipc
++
++DIRS = chrome
++
++ifdef MOZ_IPC
++XPCSHELL_TESTS += unit
++endif
++
++LIBS = $(LIBS_DIR) $(MOZ_JS_LIBS) $(NULL)
++
++include $(topsrcdir)/config/rules.mk
++
++DEFINES += -DJS_THREADSAFE -DJSFILE
+diff --git a/js/src/ipc/tests/unit/cpow.js b/js/src/ipc/tests/unit/cpow.js
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/tests/unit/cpow.js
+@@ -0,0 +1,3 @@
++function run_test() {
++  
++}
+\ No newline at end of file
+diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpow.js
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/tests/unit/test_cpow.js
+@@ -0,0 +1,9 @@
++function run_test() {
++  do_test_pending();
++  run_test_in_child("cpow.js");
++  sendCommand("this", function(obj) {
++    print(obj);
++    throw "oijasdf";
++    do_test_finished();
++  });
++}
+\ No newline at end of file
