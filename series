@@ -2,4 +2,5 @@ default-paramtraits-delegation.diff
 tolerate-browserchrome-failure.diff
 run_test_on_client_patch_521922.diff
 cpow.diff
+xpcshell-getChildGlobalObject.diff
 test_cpow.diff

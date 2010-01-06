@@ -1,0 +1,102 @@
+diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
+--- a/js/src/xpconnect/shell/xpcshell.cpp
++++ b/js/src/xpconnect/shell/xpcshell.cpp
+@@ -688,16 +688,31 @@ SendCommand(JSContext* cx,
+     if (!XRE_SendTestShellCommand(cx, str, argc > 1 ? &argv[1] : nsnull)) {
+         JS_ReportError(cx, "Couldn't send command!");
+         return JS_FALSE;
+     }
+ 
+     return JS_TRUE;
+ }
+ 
++static JSBool
++GetChildGlobalObject(JSContext* cx,
++                     JSObject* obj,
++                     uintN argc,
++                     jsval* argv,
++                     jsval* rval)
++{
++    JSObject* global;
++    if (XRE_GetChildGlobalObject(cx, &global)) {
++        *rval = OBJECT_TO_JSVAL(global);
++        return JS_TRUE;
++    }
++    return JS_FALSE;
++}
++
+ #endif // MOZ_IPC
+ 
+ /*
+  * JSContext option name to flag map. The option names are in alphabetical
+  * order for better reporting.
+  */
+ static const struct {
+     const char  *name;
+@@ -805,16 +820,17 @@ static JSFunctionSpec glob_functions[] =
+     {"gc",              GC,             0,0,0},
+     {"clear",           Clear,          1,0,0},
+     {"options",         Options,        0,0,0},
+ #ifdef DEBUG
+     {"dumpHeap",        DumpHeap,       5,0,0},
+ #endif
+ #ifdef MOZ_IPC
+     {"sendCommand",     SendCommand,    1,0,0},
++    {"getChildGlobalObject", GetChildGlobalObject, 0,0,0},
+ #endif
+ #ifdef MOZ_SHARK
+     {"startShark",      js_StartShark,      0,0,0},
+     {"stopShark",       js_StopShark,       0,0,0},
+     {"connectShark",    js_ConnectShark,    0,0,0},
+     {"disconnectShark", js_DisconnectShark, 0,0,0},
+ #endif
+ #ifdef MOZ_CALLGRIND
+diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
+--- a/toolkit/xre/nsEmbedFunctions.cpp
++++ b/toolkit/xre/nsEmbedFunctions.cpp
+@@ -506,16 +506,23 @@ XRE_SendTestShellCommand(JSContext* aCx,
+ 
+     jsval callbackVal = *reinterpret_cast<jsval*>(aCallback);
+     NS_ENSURE_TRUE(callback->SetCallback(aCx, callbackVal), false);
+ 
+     return true;
+ }
+ 
+ bool
++XRE_GetChildGlobalObject(JSContext* aCX,
++                         JSObject** globalp)
++{
++    return false;
++}
++
++bool
+ XRE_ShutdownTestShell()
+ {
+   if (!gTestShellParent)
+     return true;
+   return ContentProcessParent::GetSingleton()->DestroyTestShell(gTestShellParent);
+ }
+ 
+ #endif // MOZ_IPC
+diff --git a/xpcom/build/nsXULAppAPI.h b/xpcom/build/nsXULAppAPI.h
+--- a/xpcom/build/nsXULAppAPI.h
++++ b/xpcom/build/nsXULAppAPI.h
+@@ -488,12 +488,18 @@ XRE_API(MessageLoop*,
+ 
+ struct JSContext;
+ struct JSString;
+ 
+ XRE_API(bool,
+         XRE_SendTestShellCommand, (JSContext* aCx,
+                                    JSString* aCommand,
+                                    void* aCallback))
++struct JSObject;
++
++XRE_API(bool,
++        XRE_GetChildGlobalObject, (JSContext* aCX,
++                                   JSObject** globalp))
++
+ XRE_API(bool,
+         XRE_ShutdownTestShell, ())
+ 
+ #endif // _nsXULAppAPI_h__
