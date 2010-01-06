@@ -25,61 +25,6 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
  
  } // namespace dom
  } // namespace mozilla
-diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
---- a/dom/ipc/TabChild.cpp
-+++ b/dom/ipc/TabChild.cpp
-@@ -382,34 +382,42 @@ TabChild::RecvsendMouseEvent(const nsStr
-   nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
-   nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
-   NS_ENSURE_TRUE(utils, true);
-   utils->SendMouseEvent(aType, aX, aY, aButton, aClickCount, aModifiers,
-                         aIgnoreRootScrollFrame);
-   return true;
- }
- 
--#include "nsIScriptGlobalObjectOwner.h"
--
--void
--TabChild::CreateObjectWrapperLiaisonAndAttachGlobalObject()
-+static JSContext*
-+GetJSContext(nsIWebNavigation* webNav)
- {
-     nsCOMPtr<nsIDOMDocument> domDocument;
-     nsCOMPtr<nsIDocument> document;
-     nsCOMPtr<nsIScriptGlobalObject> global;
-     nsCOMPtr<nsIScriptContext> context;
-+
-+    if (NS_SUCCEEDED(webNav->GetDocument(getter_AddRefs(domDocument))) &&
-+        (document = do_QueryInterface(domDocument)) &&
-+        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
-+        (context = do_QueryInterface(global->GetContext())))
-+        return static_cast<JSContext*>(context->GetNativeContext());
-+
-+    return NULL;
-+}
-+
-+void
-+TabChild::CreateObjectWrapperLiaisonAndAttachGlobalObject()
-+{
-+
-     JSContext* cx;
-     PContentProcessChild* manager;
-     mozilla::jsipc::ObjectWrapperLiaisonChild* owlc;
- 
--    if (NS_SUCCEEDED(mWebNav->GetDocument(getter_AddRefs(domDocument))) &&
--        (document = do_QueryInterface(domDocument)) &&
--        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
--        (context = do_QueryInterface(global->GetContext())) &&
--        (cx = static_cast<JSContext*>(context->GetNativeContext())) &&
-+    if ((cx = GetJSContext(mWebNav)) &&
-         (manager = Manager()) &&
-         (owlc = new mozilla::jsipc::ObjectWrapperLiaisonChild(cx)))
-         manager
-             ->SendPObjectWrapperLiaisonConstructor(owlc, this)
-             ->SendPObjectWrapperConstructor(true);
- }
- 
- mozilla::ipc::PDocumentRendererChild*
 diff --git a/ipc/testshell/TestShellChild.cpp b/ipc/testshell/TestShellChild.cpp
 --- a/ipc/testshell/TestShellChild.cpp
 +++ b/ipc/testshell/TestShellChild.cpp
@@ -367,13 +312,10 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,4 @@
 +function run_test() {
-+  do_test_pending();
-+  run_test_in_child("cpow_child.js",
-+                    function() {
-+                      do_test_finished();
-+                    });
++  run_test_in_child("cpow_child.js");
++  print(getChildGlobalObject());
 +}
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp

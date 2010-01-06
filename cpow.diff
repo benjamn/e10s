@@ -482,7 +482,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -371,16 +382,41 @@ TabChild::RecvsendMouseEvent(const nsStr
+@@ -371,16 +382,49 @@ TabChild::RecvsendMouseEvent(const nsStr
    nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
@@ -491,24 +491,32 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
    return true;
  }
  
-+#include "nsIScriptGlobalObjectOwner.h"
-+
-+void
-+TabChild::CreateObjectWrapperLiaisonAndAttachGlobalObject()
++static JSContext*
++GetJSContext(nsIWebNavigation* webNav)
 +{
 +    nsCOMPtr<nsIDOMDocument> domDocument;
 +    nsCOMPtr<nsIDocument> document;
 +    nsCOMPtr<nsIScriptGlobalObject> global;
 +    nsCOMPtr<nsIScriptContext> context;
++
++    if (NS_SUCCEEDED(webNav->GetDocument(getter_AddRefs(domDocument))) &&
++        (document = do_QueryInterface(domDocument)) &&
++        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
++        (context = do_QueryInterface(global->GetContext())))
++        return static_cast<JSContext*>(context->GetNativeContext());
++
++    return NULL;
++}
++
++void
++TabChild::CreateObjectWrapperLiaisonAndAttachGlobalObject()
++{
++
 +    JSContext* cx;
 +    PContentProcessChild* manager;
 +    mozilla::jsipc::ObjectWrapperLiaisonChild* owlc;
 +
-+    if (NS_SUCCEEDED(mWebNav->GetDocument(getter_AddRefs(domDocument))) &&
-+        (document = do_QueryInterface(domDocument)) &&
-+        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
-+        (context = do_QueryInterface(global->GetContext())) &&
-+        (cx = static_cast<JSContext*>(context->GetNativeContext())) &&
++    if ((cx = GetJSContext(mWebNav)) &&
 +        (manager = Manager()) &&
 +        (owlc = new mozilla::jsipc::ObjectWrapperLiaisonChild(cx)))
 +        manager
