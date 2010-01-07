@@ -966,7 +966,7 @@ diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/CPOWTypes.h
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,59 @@
 +#ifndef mozilla_jsipc_ObjectWrapperLiaisonTypes_h__
 +#define mozilla_jsipc_ObjectWrapperLiaisonTypes_h__
 +
@@ -1014,6 +1014,16 @@ new file mode 100644
 +template <> struct ParamTraits<JSType> : public CPOWConvertible<JSType, int> {};
 + 
 +}
++
++#if 1
++#define CLOG(PRINTF_ARGS) \
++    PR_BEGIN_MACRO        \
++    printf PRINTF_ARGS ;  \
++    fflush(0);            \
++    PR_END_MACRO
++#else
++#define CLOG(_)
++#endif
 +
 +#endif
 diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
@@ -1095,7 +1105,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,484 @@
+@@ -0,0 +1,476 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
@@ -1134,14 +1144,9 @@ new file mode 100644
 +    case JSTYPE_VOID:
 +        *to = void_t();
 +        return true;
-+    case JSTYPE_OBJECT:
 +    case JSTYPE_FUNCTION:
-+        {
-+            JSObject* obj;
-+            if (!JS_ValueToObject(cx, from, &obj))
-+                return false;
-+            return JSObject_to_JSVariant(cx, obj, to);
-+        }
++    case JSTYPE_OBJECT:
++        return JSObject_to_JSVariant(cx, JSVAL_TO_OBJECT(from), to);
 +    case JSTYPE_STRING:
 +        *to = nsString(JS_GetStringChars(JSVAL_TO_STRING(from)));
 +        return true;
@@ -1534,16 +1539,13 @@ new file mode 100644
 +    if (!JSObject_from_PObjectWrapperChild(mContext, receiver, &obj))
 +        return false;
 +
-+    jsval rv, args[argv.Length()];
++    jsval rv, jsargs[argv.Length()];
 +    for (PRUint32 i = 0; i < argv.Length(); ++i)
-+        if (!jsval_from_JSVariant(mContext, argv.ElementAt(i), args + i))
++        if (!jsval_from_JSVariant(mContext, argv.ElementAt(i), jsargs + i))
 +            return false;
 +
-+    JSFunction* callee = JS_ValueToFunction(mContext, OBJECT_TO_JSVAL(mObj));
-+    if (!callee)
-+        return jsval_to_JSVariant(mContext, JSVAL_VOID, rval);
-+
-+    *ok = JS_CallFunction(mContext, obj, callee, argv.Length(), args, &rv);
++    *ok = JS_CallFunctionValue(mContext, obj, OBJECT_TO_JSVAL(mObj),
++                               argv.Length(), jsargs, &rv);
 +
 +    return jsval_to_JSVariant(mContext, *ok ? rv : JSVAL_VOID, rval);
 +}
@@ -1880,8 +1882,9 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,613 @@
+@@ -0,0 +1,612 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
++#include "mozilla/jsipc/CPOWTypes.h"
 +
 +#include "jsobj.h"
 +
@@ -2133,8 +2136,7 @@ new file mode 100644
 +jsval_to_nsString(JSContext* cx, jsval from, nsString* to)
 +{
 +    JSString* str;
-+    if (JSVAL_IS_STRING(from) &&
-+        (str = JS_ValueToString(cx, from))) {
++    if ((str = JS_ValueToString(cx, from))) {
 +        *to = JS_GetStringChars(str);
 +        return true;
 +    }
@@ -2145,7 +2147,7 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_AddProperty(JSContext *cx, JSObject *obj, jsval id,
 +                                      jsval *vp)
 +{
-+    printf("Calling CPOW_AddProperty...\n"); fflush(0);
++    CLOG(("Calling CPOW_AddProperty...\n"));
 +
 +    // Unwrap always has to come first!
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
@@ -2167,7 +2169,7 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_GetProperty(JSContext *cx, JSObject *obj, jsval id,
 +                                      jsval *vp)
 +{
-+    printf("Calling CPOW_GetProperty...\n"); fflush(0);
++    CLOG(("Calling CPOW_GetProperty...\n"));
 +
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
@@ -2191,7 +2193,7 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id,
 +                                      jsval *vp)
 +{
-+    printf("Calling CPOW_SetProperty...\n"); fflush(0);
++    CLOG(("Calling CPOW_SetProperty...\n"));
 +
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
@@ -2217,7 +2219,7 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_DelProperty(JSContext *cx, JSObject *obj, jsval id,
 +                                      jsval *vp)
 +{
-+    printf("Calling CPOW_DelProperty...\n"); fflush(0);
++    CLOG(("Calling CPOW_DelProperty...\n"));
 +
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
@@ -2314,7 +2316,7 @@ new file mode 100644
 +                                       JSIterateOp enum_op, jsval *statep,
 +                                       jsid *idp)
 +{
-+    printf("Calling CPOW_NewEnumerate...\n"); fflush(0);
++    CLOG(("Calling CPOW_NewEnumerate...\n"));
 +
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
@@ -2336,7 +2338,7 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_Iterator(JSContext *cx, JSObject *obj,
 +                                   JSBool keysonly)
 +{
-+    printf("Calling CPOW_Iterator...\n"); fflush(0);
++    CLOG(("Calling CPOW_Iterator...\n"));
 +    
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
@@ -2353,9 +2355,8 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_NewResolve(JSContext *cx, JSObject *obj, jsval id,
 +                                     uintN flags, JSObject **objp)
 +{
-+    printf("Calling CPOW_NewResolve (%s)...\n",
-+           JS_GetTypeName(cx, JS_TypeOfValue(cx, id)));
-+    fflush(0);
++    CLOG(("Calling CPOW_NewResolve (%s)...\n",
++         JS_GetTypeName(cx, JS_TypeOfValue(cx, id))));
 +
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
@@ -2389,7 +2390,8 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_Convert(JSContext *cx, JSObject *obj, JSType type,
 +                                  jsval *vp)
 +{
-+    printf("Calling CPOW_Convert...\n"); fflush(0);
++    CLOG(("Calling CPOW_Convert (%s)...\n",
++          JS_GetTypeName(cx, type)));
 +
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
@@ -2407,8 +2409,7 @@ new file mode 100644
 +/*static*/ void
 +ObjectWrapperParent::CPOW_Finalize(JSContext* cx, JSObject* obj)
 +{
-+    printf("Calling CPOW_Finalize...\n");
-+    fflush(0);
++    CLOG(("Calling CPOW_Finalize...\n"));
 +    
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (self)
@@ -2419,7 +2420,7 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_Call(JSContext* cx, JSObject* obj, uintN argc,
 +                               jsval* argv, jsval* rval)
 +{
-+    printf("Calling CPOW_Call...\n"); fflush(0);
++    CLOG(("Calling CPOW_Call...\n"));
 +
 +    ObjectWrapperParent* receiver = Unwrap(cx, obj);
 +    if (!receiver)
@@ -2448,7 +2449,7 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_Construct(JSContext *cx, JSObject *obj, uintN argc,
 +                                    jsval *argv, jsval *rval)
 +{
-+    printf("Calling CPOW_Construct...\n"); fflush(0);
++    CLOG(("Calling CPOW_Construct...\n"));
 +    
 +    ObjectWrapperParent* constructor =
 +        Unwrap(cx, JSVAL_TO_OBJECT(JS_ARGV_CALLEE(argv)));
@@ -2473,7 +2474,7 @@ new file mode 100644
 +ObjectWrapperParent::CPOW_Equality(JSContext *cx, JSObject *obj, jsval v,
 +                                   JSBool *bp)
 +{
-+    printf("Calling CPOW_Equality...\n"); fflush(0);
++    CLOG(("Calling CPOW_Equality...\n"));
 +
 +    *bp = JS_FALSE;
 +    
@@ -2492,7 +2493,7 @@ new file mode 100644
 +    
 +    return JS_TRUE;
 +}
-+    
++
 +}}
 diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644

@@ -1,3 +1,77 @@
+diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
+--- a/dom/ipc/ContentProcessChild.cpp
++++ b/dom/ipc/ContentProcessChild.cpp
+@@ -36,16 +36,18 @@
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ #include "ContentProcessChild.h"
+ #include "TabChild.h"
+ 
+ #include "mozilla/ipc/TestShellChild.h"
+ #include "mozilla/net/NeckoChild.h"
++#include "mozilla/ipc/XPCShellEnvironment.h"
++#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
+ 
+ #include "nsXULAppAPI.h"
+ 
+ #include "base/message_loop.h"
+ #include "base/task.h"
+ 
+ using namespace mozilla::ipc;
+ using namespace mozilla::net;
+@@ -110,16 +112,30 @@ ContentProcessChild::AllocPTestShell()
+ }
+ 
+ bool
+ ContentProcessChild::DeallocPTestShell(PTestShellChild* shell)
+ {
+     mTestShells.RemoveElement(shell);
+     return true;
+ }
++    
++bool
++ContentProcessChild::RecvPTestShellConstructor(PTestShellChild* actor)
++{
++    XPCShellEnvironment* env;
++    ObjectWrapperLiaisonChild* owlc;
++    JSContext* cx;
++
++    if ((env = static_cast<TestShellChild*>(actor)->GetXPCShell()) &&
++        (cx = env->GetContext()) &&
++        (owlc = new ObjectWrapperLiaisonChild(cx)))
++        SendPObjectWrapperLiaisonConstructor(owlc, actor)
++            ->SendPObjectWrapperConstructor(true);
++}
+ 
+ PNeckoChild* 
+ ContentProcessChild::AllocPNecko()
+ {
+     return new NeckoChild();
+ }
+ 
+ bool 
+diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
+--- a/dom/ipc/ContentProcessChild.h
++++ b/dom/ipc/ContentProcessChild.h
+@@ -67,16 +67,17 @@ public:
+         return sSingleton;
+     }
+ 
+     virtual PIFrameEmbeddingChild* AllocPIFrameEmbedding();
+     virtual bool DeallocPIFrameEmbedding(PIFrameEmbeddingChild*);
+ 
+     virtual PTestShellChild* AllocPTestShell();
+     virtual bool DeallocPTestShell(PTestShellChild*);
++    virtual bool RecvPTestShellConstructor(PTestShellChild* actor);
+ 
+     virtual PNeckoChild* AllocPNecko();
+     virtual bool DeallocPNecko(PNeckoChild*);
+ 
+ protected:
+     virtual PObjectWrapperLiaisonChild* AllocPObjectWrapperLiaison(const JSRuntimeOwner&);
+     virtual bool DeallocPObjectWrapperLiaison(PObjectWrapperLiaisonChild* actor);
+     
 diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 --- a/dom/ipc/ContentProcessParent.cpp
 +++ b/dom/ipc/ContentProcessParent.cpp
@@ -28,7 +102,7 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 diff --git a/ipc/testshell/TestShellChild.cpp b/ipc/testshell/TestShellChild.cpp
 --- a/ipc/testshell/TestShellChild.cpp
 +++ b/ipc/testshell/TestShellChild.cpp
-@@ -30,20 +30,23 @@
+@@ -30,16 +30,17 @@
   * decision by deleting the provisions above and replace them with the notice
   * and other provisions required by the GPL or the LGPL. If you do not delete
   * the provisions above, a recipient may use your version of this file under
@@ -38,54 +112,18 @@ diff --git a/ipc/testshell/TestShellChild.cpp b/ipc/testshell/TestShellChild.cpp
  
  #include "TestShellChild.h"
 +#include "mozilla/dom/PContentProcessChild.h"
-+#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
  
  using mozilla::ipc::TestShellChild;
  using mozilla::ipc::PTestShellCommandChild;
  using mozilla::ipc::XPCShellEnvironment;
-+using mozilla::jsipc::ObjectWrapperLiaisonChild;
  
  TestShellChild::TestShellChild()
  : mXPCShell(XPCShellEnvironment::CreateEnvironment())
  {
- }
- 
- bool
- TestShellChild::RecvExecuteCommand(const nsString& aCommand)
-@@ -64,16 +67,29 @@ TestShellChild::AllocPTestShellCommand(c
- 
- bool
- TestShellChild::DeallocPTestShellCommand(PTestShellCommandChild* aCommand)
- {
-   delete aCommand;
-   return true;
- }
- 
-+void
-+TestShellChild::SetXPCShell(XPCShellEnvironment* aXPCShell)
-+{
-+  ObjectWrapperLiaisonChild* owlc;
-+  JSContext* cx;
-+  if ((mXPCShell = aXPCShell) &&
-+      (cx = mXPCShell->GetContext()) &&
-+      (owlc = new ObjectWrapperLiaisonChild(cx)))
-+    Manager()
-+      ->SendPObjectWrapperLiaisonConstructor(owlc, this)
-+      ->SendPObjectWrapperConstructor(true);
-+}
-+
- bool
- TestShellChild::RecvPTestShellCommandConstructor(PTestShellCommandChild* aActor,
-                                                  const nsString& aCommand)
- {
-   if (mXPCShell->IsQuitting()) {
-     NS_WARNING("Commands sent after quit command issued!");
-     return false;
-   }
 diff --git a/ipc/testshell/TestShellChild.h b/ipc/testshell/TestShellChild.h
 --- a/ipc/testshell/TestShellChild.h
 +++ b/ipc/testshell/TestShellChild.h
-@@ -61,19 +61,17 @@ public:
+@@ -61,16 +61,17 @@ public:
  
    bool
    RecvPTestShellCommandConstructor(PTestShellCommandChild* aActor,
@@ -94,17 +132,14 @@ diff --git a/ipc/testshell/TestShellChild.h b/ipc/testshell/TestShellChild.h
    bool
    DeallocPTestShellCommand(PTestShellCommandChild* aCommand);
  
--  void SetXPCShell(XPCShellEnvironment* aXPCShell) {
--    mXPCShell = aXPCShell;
--  }
-+  void SetXPCShell(XPCShellEnvironment* aXPCShell);
++  XPCShellEnvironment* GetXPCShell() const { return mXPCShell; }
+   void SetXPCShell(XPCShellEnvironment* aXPCShell) {
+     mXPCShell = aXPCShell;
+   }
  
  private:
    nsAutoPtr<XPCShellEnvironment> mXPCShell;
  };
- 
- } /* namespace ipc */
- } /* namespace mozilla */
  
 diff --git a/ipc/testshell/TestShellParent.h b/ipc/testshell/TestShellParent.h
 --- a/ipc/testshell/TestShellParent.h
@@ -216,6 +251,42 @@ diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
  include $(topsrcdir)/config/rules.mk
  
  DEFINES += -DBIN_SUFFIX='"$(BIN_SUFFIX)"'
+diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
+--- a/js/src/ipc/ObjectWrapperChild.cpp
++++ b/js/src/ipc/ObjectWrapperChild.cpp
+@@ -1,10 +1,11 @@
+ #include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
+ #include "mozilla/jsipc/ObjectWrapperChild.h"
++#include "mozilla/jsipc/CPOWTypes.h"
+ 
+ #include "nsTArray.h"
+ 
+ namespace mozilla {
+ namespace jsipc {
+ 
+ ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
+     : mContext(cx)
+@@ -386,18 +387,18 @@ ObjectWrapperChild::AnswerNewResolve(con
+ {
+     jsid interned_id;
+     
+     *ok = false;
+     *obj2 = NULL;
+     
+     JSAutoRequest request(mContext);
+ 
+-    printf("new-resolving \"%s\"...\n", NS_ConvertUTF16toUTF8(id).get());
+-    fflush(0);
++    CLOG(("new-resolving \"%s\"...\n",
++          NS_ConvertUTF16toUTF8(id).get()));
+ 
+     if (!jsid_from_nsString(mContext, id, &interned_id))
+         return false;
+ 
+     JSPropertyDescriptor desc;
+     if (!JS_GetPropertyDescriptorById(mContext, mObj, interned_id, flags, &desc))
+         return true;
+ 
 diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperLiaisonParent.h
 --- a/js/src/ipc/ObjectWrapperLiaisonParent.h
 +++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
@@ -248,45 +319,7 @@ diff --git a/js/src/ipc/tests/Makefile.in b/js/src/ipc/tests/Makefile.in
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/Makefile.in
-@@ -0,0 +1,51 @@
-+# ***** BEGIN LICENSE BLOCK *****
-+# Version: MPL 1.1/GPL 2.0/LGPL 2.1
-+#
-+# The contents of this file are subject to the Mozilla Public License Version
-+# 1.1 (the "License"); you may not use this file except in compliance with
-+# the License. You may obtain a copy of the License at
-+# http://www.mozilla.org/MPL/
-+#
-+# Software distributed under the License is distributed on an "AS IS" basis,
-+# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
-+# for the specific language governing rights and limitations under the
-+# License.
-+#
-+# The Original Code is Makefile.
-+#
-+# The Initial Developer of the Original Code is
-+#   Mozilla Corporation.
-+#
-+# Portions created by the Initial Developer are Copyright (C) 2010
-+# the Initial Developer. All Rights Reserved.
-+#
-+# Contributor(s):
-+#   Ben Newman <b{enjam,newma}n@mozilla.com>
-+#
-+# Alternatively, the contents of this file may be used under the terms of
-+# either the GNU General Public License Version 2 or later (the "GPL"), or
-+# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
-+# in which case the provisions of the GPL or the LGPL are applicable instead
-+# of those above. If you wish to allow use of your version of this file only
-+# under the terms of either the GPL or the LGPL, and not to allow others to
-+# use your version of this file under the terms of the MPL, indicate your
-+# decision by deleting the provisions above and replace them with the notice
-+# and other provisions required by the GPL or the LGPL. If you do not delete
-+# the provisions above, a recipient may use your version of this file under
-+# the terms of any one of the MPL, the GPL or the LGPL.
-+#
-+# ***** END LICENSE BLOCK *****
-+
+@@ -0,0 +1,13 @@
 +DEPTH		= ../../../..
 +topsrcdir	= /home/ben/dev/electrolysis
 +srcdir		= /home/ben/dev/electrolysis/js/src/ipc/tests
@@ -304,18 +337,50 @@ diff --git a/js/src/ipc/tests/unit/cpow_child.js b/js/src/ipc/tests/unit/cpow_ch
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/cpow_child.js
-@@ -0,0 +1,3 @@
+@@ -0,0 +1,14 @@
++var data = {
++  answer: 42,
++  nested: { objects: { work: "yes they do" } },
++  arr: [
++    "zeroeth",
++    { foo: "bar" },
++    function() { return data },
++    { toString: function() { return "last" } }
++  ]
++};
++
 +function run_test() {
-+  (function() { return this })().foo = 42;
++
 +}
 diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpow.js
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,4 @@
+@@ -0,0 +1,25 @@
 +function run_test() {
-+  run_test_in_child("cpow_child.js");
-+  print(getChildGlobalObject());
++  run_test_in_child("cpow_child.js", run_actual_tests);
++}
++
++function run_actual_tests() {
++  var obj = getChildGlobalObject();
++
++  test_properties(obj.data);
++
++  do_test_finished();
++}
++
++function test_properties(data) {
++  do_check_eq(data.answer, 42);
++  do_check_eq(data.nested.objects.work,
++              "yes they do");
++  do_check_eq(data.asodfijasdiofj, void(0));
++  do_check_eq(data.arr.length, 4);
++  do_check_eq(data.arr[4], void(0));
++  do_check_eq(data.arr[0], "zeroeth");
++  do_check_eq(data.arr[1].foo, "bar");
++  do_check_eq(data.arr[2], data.arr[2]); // ensure function wrapper reuse
++  do_check_eq(data.arr[2]().arr, data.arr);
++  do_check_eq(data.arr[3] + "", "last");
 +}
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp
