@@ -1882,7 +1882,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,612 @@
+@@ -0,0 +1,608 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
 +
@@ -1976,7 +1976,7 @@ new file mode 100644
 +{
 +    JSClass* clasp = const_cast<JSClass*>(&_::sCPOW_JSClass.base);
 +    if (!mObj) {
-+        mObj = JS_NewObjectWithGivenProto(cx, clasp, NULL, NULL);
++        mObj = JS_NewObject(cx, clasp, NULL, NULL);
 +        *mObjSlotContents = this;
 +        JS_SetReservedSlot(cx, mObj, sWrappedObjSlot,
 +                           PRIVATE_TO_JSVAL(mObjSlotContents));
@@ -2397,15 +2397,11 @@ new file mode 100644
 +    if (!self)
 +        return JS_FALSE;
 +
-+    bool out_ok;
-+    JSVariant out_v;
++    *vp = OBJECT_TO_JSVAL(obj);
 +
-+    return (self->CallConvert(type,
-+                              &out_ok, &out_v) &&
-+            out_ok &&
-+            jsval_from_JSVariant(cx, out_v, vp));
++    return JS_TRUE;
 +}
-+    
++
 +/*static*/ void
 +ObjectWrapperParent::CPOW_Finalize(JSContext* cx, JSObject* obj)
 +{

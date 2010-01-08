@@ -315,6 +315,141 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperL
          return new ObjectWrapperParent();
      }
  
+diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
+--- a/js/src/ipc/ObjectWrapperParent.cpp
++++ b/js/src/ipc/ObjectWrapperParent.cpp
+@@ -1,12 +1,13 @@
+ #include "mozilla/jsipc/ObjectWrapperParent.h"
+ #include "mozilla/jsipc/CPOWTypes.h"
+ 
+ #include "jsobj.h"
++#include "jsfun.h"
+ 
+ namespace mozilla {
+ namespace jsipc {
+ 
+ namespace {
+ 
+     typedef ObjectWrapperParent _;
+ 
+@@ -253,21 +254,25 @@ jsval_to_nsString(JSContext* cx, jsval f
+     JSString* str;
+     if ((str = JS_ValueToString(cx, from))) {
+         *to = JS_GetStringChars(str);
+         return true;
+     }
+     return false;
+ }
+ 
++#define JSVAL_TO_CSTR(CX, V) \
++    NS_ConvertUTF16toUTF8(nsString(JS_GetStringChars(JS_ValueToString(CX, V)))).get()
++
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_AddProperty(JSContext *cx, JSObject *obj, jsval id,
+                                       jsval *vp)
+ {
+-    CLOG(("Calling CPOW_AddProperty...\n"));
++    CLOG(("Calling CPOW_AddProperty (%s)...\n",
++          JSVAL_TO_CSTR(cx, id)));
+ 
+     // Unwrap always has to come first!
+     ObjectWrapperParent* self = Unwrap(cx, obj);
+     if (!self)
+         return JS_FALSE;
+ 
+     if (AutoResolveFlag::IsSet(cx, obj))
+         return JS_TRUE;
+@@ -279,17 +284,18 @@ ObjectWrapperParent::CPOW_AddProperty(JS
+ 
+     return self->CallAddProperty(in_id);
+ }    
+ 
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_GetProperty(JSContext *cx, JSObject *obj, jsval id,
+                                       jsval *vp)
+ {
+-    CLOG(("Calling CPOW_GetProperty...\n"));
++    CLOG(("Calling CPOW_GetProperty (%s)...\n",
++          JSVAL_TO_CSTR(cx, id)));
+ 
+     ObjectWrapperParent* self = Unwrap(cx, obj);
+     if (!self)
+         return JS_FALSE;
+ 
+     nsString in_id;
+ 
+     if (!jsval_to_nsString(cx, id, &in_id))
+@@ -303,17 +309,18 @@ ObjectWrapperParent::CPOW_GetProperty(JS
+             out_ok &&
+             self->jsval_from_JSVariant(cx, out_v, vp));
+ }
+ 
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id,
+                                       jsval *vp)
+ {
+-    CLOG(("Calling CPOW_SetProperty...\n"));
++    CLOG(("Calling CPOW_SetProperty (%s)...\n",
++          JSVAL_TO_CSTR(cx, id)));
+ 
+     ObjectWrapperParent* self = Unwrap(cx, obj);
+     if (!self)
+         return JS_FALSE;
+ 
+     nsString in_id;
+     JSVariant in_v;
+ 
+@@ -329,17 +336,18 @@ ObjectWrapperParent::CPOW_SetProperty(JS
+             out_ok &&
+             self->jsval_from_JSVariant(cx, out_v, vp));
+ }    
+     
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_DelProperty(JSContext *cx, JSObject *obj, jsval id,
+                                       jsval *vp)
+ {
+-    CLOG(("Calling CPOW_DelProperty...\n"));
++    CLOG(("Calling CPOW_DelProperty (%s)...\n",
++          JSVAL_TO_CSTR(cx, id)));
+ 
+     ObjectWrapperParent* self = Unwrap(cx, obj);
+     if (!self)
+         return JS_FALSE;
+ 
+     nsString in_id;
+ 
+     if (!jsval_to_nsString(cx, id, &in_id))
+diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
+--- a/js/src/ipc/ObjectWrapperParent.h
++++ b/js/src/ipc/ObjectWrapperParent.h
+@@ -12,25 +12,25 @@ class ObjectWrapperParent
+     : public PObjectWrapperParent
+ {
+ public:
+ 
+     ObjectWrapperParent()
+         : mObj(NULL)
+         , mObjSlotContents(new ObjectWrapperParent const*(NULL))
+     {}
+-    
++
+     JSObject* GetJSObject(JSContext* cx) const;
+ 
+     jsval GetJSVal(JSContext* cx) const {
+         return OBJECT_TO_JSVAL(GetJSObject(cx));
+     }
+ 
+     static const JSExtendedClass sCPOW_JSClass;    
+-    
++
+ protected:
+ 
+     void ActorDestroy(ActorDestroyReason why);
+ 
+ private:
+ 
+     mutable JSObject* mObj;
+     ObjectWrapperParent const** const mObjSlotContents;
 diff --git a/js/src/ipc/tests/Makefile.in b/js/src/ipc/tests/Makefile.in
 new file mode 100644
 --- /dev/null
@@ -337,7 +472,7 @@ diff --git a/js/src/ipc/tests/unit/cpow_child.js b/js/src/ipc/tests/unit/cpow_ch
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/cpow_child.js
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,21 @@
 +var data = {
 +  answer: 42,
 +  nested: { objects: { work: "yes they do" } },
@@ -349,14 +484,21 @@ new file mode 100644
 +  ]
 +};
 +
-+function run_test() {
++var empty = function() {};
++empty.prototype = {
++  inherited: "inherited",
++  method: function() {
++    return "called"
++  }
++};
++data.derived = new empty;
 +
-+}
++function run_test() {}
 diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpow.js
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,41 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -364,6 +506,8 @@ new file mode 100644
 +function run_actual_tests() {
 +  var obj = getChildGlobalObject();
 +
++  test_inheritance(obj.data);
++  test_toString(obj.data);
 +  test_properties(obj.data);
 +
 +  do_test_finished();
@@ -374,14 +518,29 @@ new file mode 100644
 +  do_check_eq(data.nested.objects.work,
 +              "yes they do");
 +  do_check_eq(data.asodfijasdiofj, void(0));
++
 +  do_check_eq(data.arr.length, 4);
 +  do_check_eq(data.arr[4], void(0));
 +  do_check_eq(data.arr[0], "zeroeth");
 +  do_check_eq(data.arr[1].foo, "bar");
-+  do_check_eq(data.arr[2], data.arr[2]); // ensure function wrapper reuse
-+  do_check_eq(data.arr[2]().arr, data.arr);
-+  do_check_eq(data.arr[3] + "", "last");
++
++  do_check_eq(data.arr[2], data.arr[2]); // ensure reuse
++  do_check_true(data.arr[2]() === data);
++  do_check_eq(data.arr[2]().arr[0], "zeroeth");
++
++  do_check_eq(data.arr[3], "last");
 +}
++
++function test_toString(data) {
++  do_check_eq(data.nested.toString(), "CPOW");
++  do_check_eq(data + "asdf", "CPOWasdf");
++}
++
++function test_inheritance(data) {
++  do_check_eq(data.derived.inherited, "inherited");
++  do_check_eq(data.derived.method(), "called");
++}
+\ No newline at end of file
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp
 +++ b/js/src/xpconnect/shell/xpcshell.cpp
