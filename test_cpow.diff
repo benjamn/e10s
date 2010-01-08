@@ -499,7 +499,7 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,89 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -570,11 +570,12 @@ new file mode 100644
 +      keys[keys.length] = k;
 +    do_check_eq(keys.length, 3);
 +    do_check_eq(keys.sort().join("~"), "a~b~c");
++    return obj;
 +  }
-+  check(new B);
++  do_check_true(check(new B) instanceof A);
 +  B.prototype = A.prototype;
 +  A.prototype = new B;
-+  check(new A);
++  do_check_true(check(new A) instanceof B);
 +}
 +
 +function test_Array(ChildArray) {
@@ -588,7 +589,6 @@ new file mode 100644
 +  var succ = new ChildFunction("x", "return x + 1");
 +  do_check_eq(succ(succ(3)), 5);
 +}
-\ No newline at end of file
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp
 +++ b/js/src/xpconnect/shell/xpcshell.cpp
