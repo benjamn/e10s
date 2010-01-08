@@ -472,7 +472,7 @@ diff --git a/js/src/ipc/tests/unit/cpow_child.js b/js/src/ipc/tests/unit/cpow_ch
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/cpow_child.js
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,49 @@
 +var data = {
 +  answer: 42,
 +  nested: { objects: { work: "yes they do" } },
@@ -511,12 +511,22 @@ new file mode 100644
 +  }
 +};
 +
++function A() {
++  this.a = A;
++  this.b = A;
++}
++function B() {
++  this.b = B;
++  this.c = B;
++}
++B.prototype = new A;
++
 +function run_test() {}
 diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpow.js
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,71 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -528,6 +538,8 @@ new file mode 100644
 +  test_toString(obj.data);
 +  test_inheritance(obj.data);
 +  test_constructor(obj.data.constructor);
++  test_enumeration(obj.B);
++  test_Array(obj.Array);
 +
 +  do_test_finished();
 +}
@@ -570,6 +582,23 @@ new file mode 100644
 +  var obj = new ctor(42);
 +  obj.check(obj);
 +}
++
++function test_enumeration(B) {
++  var obj = new B,
++      keys = [];
++  for (var k in obj)
++    keys[keys.length] = k;
++  do_check_eq(keys.length, 3);
++  do_check_eq(keys.sort().join("~"), "a~b~c");
++}
++
++function test_Array(ChildArray) {
++  do_check_true(!!ChildArray);
++  var arr = new ChildArray(1, new ChildArray(2, 3), 4);
++  do_check_eq(arr.length, 3);
++  do_check_eq(arr.slice(1).shift()[1], 3);
++}
+\ No newline at end of file
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp
 +++ b/js/src/xpconnect/shell/xpcshell.cpp
