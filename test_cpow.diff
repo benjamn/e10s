@@ -499,7 +499,7 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,88 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -519,6 +519,9 @@ new file mode 100644
 +}
 +
 +function test_properties(data) {
++  do_check_true("answer" in data);
++  do_check_false("cnefhasefho" in data.nested);
++
 +  do_check_eq(data.answer, 42);
 +  do_check_eq(data.nested.objects.work,
 +              "yes they do");
@@ -529,9 +532,11 @@ new file mode 100644
 +  do_check_eq(data.arr[0], "zeroeth");
 +  do_check_eq(data.arr[1].foo, "bar");
 +
++  do_check_true(2 in data.arr);
 +  do_check_eq(data.arr[2], data.arr[2]); // ensure reuse
 +  do_check_true(data.arr[2]() === data);
 +  do_check_eq(data.arr[2]().arr[0], "zeroeth");
++  do_check_true("call" in data.arr[2]);
 +
 +  do_check_eq(data.arr[3], "last");
 +}
@@ -543,6 +548,7 @@ new file mode 100644
 +}
 +
 +function test_inheritance(data) {
++  do_check_true("inherited" in data.derived);
 +  do_check_false(data.derived.hasOwnProperty("inherited"));
 +  var base = data.derived.__proto__;
 +  do_check_true(base.hasOwnProperty("inherited"));
