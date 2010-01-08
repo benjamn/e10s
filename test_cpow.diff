@@ -287,39 +287,12 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      if (!JS_GetPropertyDescriptorById(mContext, mObj, interned_id, flags, &desc))
          return true;
  
-diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperLiaisonParent.h
---- a/js/src/ipc/ObjectWrapperLiaisonParent.h
-+++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
-@@ -55,16 +55,24 @@ public:
- 
-     bool AttachGlobal(JSContext* cx, JSObject* to, jsid id)
-     {
-         return (mGlobal &&
-                 JS_DefinePropertyById(cx, to, id, mGlobal->GetJSVal(cx), NULL,
-                                       NULL, 0));
-     }
- 
-+    bool GetGlobal(JSContext* cx, JSObject** globalp)
-+    {
-+        if (!mGlobal)
-+            return false;
-+        *globalp = mGlobal->GetJSObject(cx);
-+        return true;
-+    }
-+
- private:
- 
-     ObjectWrapperParent* mGlobal;
- 
-     PObjectWrapperParent* AllocPObjectWrapper(const bool&) {
-         return new ObjectWrapperParent();
-     }
- 
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -1,12 +1,13 @@
+@@ -1,13 +1,14 @@
  #include "mozilla/jsipc/ObjectWrapperParent.h"
+ #include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
  #include "mozilla/jsipc/CPOWTypes.h"
  
  #include "jsobj.h"
@@ -332,7 +305,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
      typedef ObjectWrapperParent _;
  
-@@ -253,21 +254,25 @@ jsval_to_nsString(JSContext* cx, jsval f
+@@ -254,21 +255,25 @@ jsval_to_nsString(JSContext* cx, jsval f
      JSString* str;
      if ((str = JS_ValueToString(cx, from))) {
          *to = JS_GetStringChars(str);
@@ -359,7 +332,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
      if (AutoResolveFlag::IsSet(cx, obj))
          return JS_TRUE;
-@@ -279,17 +284,18 @@ ObjectWrapperParent::CPOW_AddProperty(JS
+@@ -280,17 +285,18 @@ ObjectWrapperParent::CPOW_AddProperty(JS
  
      return self->CallAddProperty(in_id);
  }    
@@ -379,7 +352,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      nsString in_id;
  
      if (!jsval_to_nsString(cx, id, &in_id))
-@@ -303,17 +309,18 @@ ObjectWrapperParent::CPOW_GetProperty(JS
+@@ -304,17 +310,18 @@ ObjectWrapperParent::CPOW_GetProperty(JS
              out_ok &&
              self->jsval_from_JSVariant(cx, out_v, vp));
  }
@@ -399,7 +372,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      nsString in_id;
      JSVariant in_v;
  
-@@ -329,17 +336,18 @@ ObjectWrapperParent::CPOW_SetProperty(JS
+@@ -330,17 +337,18 @@ ObjectWrapperParent::CPOW_SetProperty(JS
              out_ok &&
              self->jsval_from_JSVariant(cx, out_v, vp));
  }    
@@ -526,7 +499,7 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,82 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -538,8 +511,9 @@ new file mode 100644
 +  test_toString(obj.data);
 +  test_inheritance(obj.data);
 +  test_constructor(obj.data.constructor);
-+  test_enumeration(obj.B);
++  test_enumeration(obj.A, obj.B);
 +  test_Array(obj.Array);
++  test_Function(obj.Function);
 +
 +  do_test_finished();
 +}
@@ -583,13 +557,18 @@ new file mode 100644
 +  obj.check(obj);
 +}
 +
-+function test_enumeration(B) {
-+  var obj = new B,
-+      keys = [];
-+  for (var k in obj)
-+    keys[keys.length] = k;
-+  do_check_eq(keys.length, 3);
-+  do_check_eq(keys.sort().join("~"), "a~b~c");
++function test_enumeration(A, B) {
++  function check(obj) {
++    var keys = [];
++    for (var k in obj)
++      keys[keys.length] = k;
++    do_check_eq(keys.length, 3);
++    do_check_eq(keys.sort().join("~"), "a~b~c");
++  }
++  check(new B);
++  B.prototype = A.prototype;
++  A.prototype = new B;
++  check(new A);
 +}
 +
 +function test_Array(ChildArray) {
@@ -597,6 +576,11 @@ new file mode 100644
 +  var arr = new ChildArray(1, new ChildArray(2, 3), 4);
 +  do_check_eq(arr.length, 3);
 +  do_check_eq(arr.slice(1).shift()[1], 3);
++}
++
++function test_Function(ChildFunction) {
++  var succ = new ChildFunction("x", "return x + 1");
++  do_check_eq(succ(succ(3)), 5);
 +}
 \ No newline at end of file
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
@@ -760,7 +744,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
 +    ObjectWrapperLiaisonParent* owlp =
 +        static_cast<ObjectWrapperLiaisonParent*>(powlp);
 +    
-+    return owlp->GetGlobal(aCx, globalp);
++    return owlp->GetGlobalJSObject(aCx, globalp);
 +}
 +
 +bool
