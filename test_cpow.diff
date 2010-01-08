@@ -472,7 +472,7 @@ diff --git a/js/src/ipc/tests/unit/cpow_child.js b/js/src/ipc/tests/unit/cpow_ch
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/cpow_child.js
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,39 @@
 +var data = {
 +  answer: 42,
 +  nested: { objects: { work: "yes they do" } },
@@ -481,7 +481,10 @@ new file mode 100644
 +    { foo: "bar" },
 +    function() { return data },
 +    { toString: function() { return "last" } }
-+  ]
++  ],
++  toString: function() {
++    return "CPOW";
++  }
 +};
 +
 +var empty = function() {};
@@ -493,12 +496,27 @@ new file mode 100644
 +};
 +data.derived = new empty;
 +
++(data.constructor = function(value) {
++  var self = this;
++  this.value = value;
++  this.check = function(that) {
++    do_check_eq(this.value, that.value);
++    do_check_eq(this, self);
++    do_check_eq(this, that);
++    do_check_false(this.isGlobal());
++  };
++}).prototype = {
++  isGlobal: function() {
++    return (function() { return this })() == this;
++  }
++};
++
 +function run_test() {}
 diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpow.js
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,53 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -506,9 +524,10 @@ new file mode 100644
 +function run_actual_tests() {
 +  var obj = getChildGlobalObject();
 +
-+  test_inheritance(obj.data);
-+  test_toString(obj.data);
 +  test_properties(obj.data);
++  test_toString(obj.data);
++  test_inheritance(obj.data);
++  test_constructor(obj.data.constructor);
 +
 +  do_test_finished();
 +}
@@ -532,15 +551,25 @@ new file mode 100644
 +}
 +
 +function test_toString(data) {
-+  do_check_eq(data.nested.toString(), "CPOW");
++  do_check_eq(data.toString(), "CPOW");
 +  do_check_eq(data + "asdf", "CPOWasdf");
++  do_check_eq(new String(data), "CPOW");
 +}
 +
 +function test_inheritance(data) {
++  do_check_false(data.derived.hasOwnProperty("inherited"));
++  var base = data.derived.__proto__;
++  do_check_true(base.hasOwnProperty("inherited"));
 +  do_check_eq(data.derived.inherited, "inherited");
 +  do_check_eq(data.derived.method(), "called");
++  do_check_eq(base.method, data.derived.method);
++  do_check_true(base.method === data.derived.method);
 +}
-\ No newline at end of file
++
++function test_constructor(ctor) {
++  var obj = new ctor(42);
++  obj.check(obj);
++}
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp
 +++ b/js/src/xpconnect/shell/xpcshell.cpp
