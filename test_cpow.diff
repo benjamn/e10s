@@ -499,7 +499,7 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,91 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -583,6 +583,8 @@ new file mode 100644
 +  var arr = new ChildArray(1, new ChildArray(2, 3), 4);
 +  do_check_eq(arr.length, 3);
 +  do_check_eq(arr.slice(1).shift()[1], 3);
++  arr[2] = arr[1];
++  do_check_eq(arr.pop()[0], 2);
 +}
 +
 +function test_Function(ChildFunction) {
