@@ -499,7 +499,7 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,105 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -511,6 +511,7 @@ new file mode 100644
 +  test_toString(obj.data);
 +  test_inheritance(obj.data);
 +  test_constructor(obj.data.constructor);
++  test_instanceof(obj.A, obj.B);
 +  test_enumeration(obj.A, obj.B);
 +  test_Array(obj.Array);
 +  test_Function(obj.Function);
@@ -564,18 +565,31 @@ new file mode 100644
 +}
 +
 +function test_enumeration(A, B) {
-+  function check(obj) {
++  function check(obj, nk, s) {
 +    var keys = [];
 +    for (var k in obj)
 +      keys[keys.length] = k;
-+    do_check_eq(keys.length, 3);
-+    do_check_eq(keys.sort().join("~"), "a~b~c");
-+    return obj;
++    do_check_eq(keys.length, nk);
++    do_check_eq(keys.sort().join("~"), s);
 +  }
-+  do_check_true(check(new B) instanceof A);
++  check(new B, 3, "a~b~c");
++  check(B.prototype, 2, "a~b");
 +  B.prototype = A.prototype;
 +  A.prototype = new B;
-+  do_check_true(check(new A) instanceof B);
++  check(new A, 3, "a~b~c");
++  check(new B, 2, "b~c");
++
++  // Put things back the way they were, mostly:
++  A.prototype = B.prototype;
++  B.prototype = new A;
++}
++
++function test_instanceof(A, B) {
++  var a = new A, b = new B;
++  do_check_true(a instanceof A);
++  do_check_false(a instanceof B);
++  do_check_true(b instanceof A);
++  do_check_true(b instanceof B);
 +}
 +
 +function test_Array(ChildArray) {
