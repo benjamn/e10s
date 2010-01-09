@@ -266,11 +266,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
  ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
      : mContext(cx)
-@@ -386,18 +387,18 @@ ObjectWrapperChild::AnswerNewResolve(con
+@@ -387,18 +388,18 @@ ObjectWrapperChild::AnswerNewResolve(con
  {
      jsid interned_id;
      
-     *ok = false;
+     *ok = JS_FALSE;
      *obj2 = NULL;
      
      JSAutoRequest request(mContext);
