@@ -1105,7 +1105,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,476 @@
+@@ -0,0 +1,490 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
@@ -1581,12 +1581,26 @@ new file mode 100644
 +    return answer;
 +}
 +
++bool
++ObjectWrapperChild::AnswerHasInstance(const JSVariant& v,
++                                      bool* ok, bool* bp)
++{
++    jsval candidate;
++    if (!jsval_from_JSVariant(mContext, v, &candidate))
++        return false;
++    JSBool TODOSerializeJSBools;
++    *bp = ((*ok = JS_HasInstance(mContext, mObj, candidate,
++                                 &TODOSerializeJSBools)) &&
++           TODOSerializeJSBools);
++    return true;
++}
++
 +}}
 diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,86 @@
 +#ifndef mozilla_jsipc_ObjectWrapperChild_h__
 +#define mozilla_jsipc_ObjectWrapperChild_h__
 +
@@ -1665,6 +1679,9 @@ new file mode 100644
 +
 +    bool AnswerConstruct(const nsTArray<JSVariant>& argv,
 +                         bool* ok, PObjectWrapperChild** rval);
++
++    bool AnswerHasInstance(const JSVariant& v,
++                           bool* ok, bool* bp);
 +};
 +
 +}}
@@ -1893,7 +1910,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,613 @@
+@@ -0,0 +1,642 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +#include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -2483,6 +2500,35 @@ new file mode 100644
 +}
 +
 +/*static*/ JSBool
++ObjectWrapperParent::CPOW_HasInstance(JSContext *cx, JSObject *obj, jsval v,
++                                      JSBool *bp)
++{
++    printf("Calling CPOW_HasInstance...\n"); fflush(0);
++
++    *bp = JS_FALSE;
++    
++    ObjectWrapperParent* self = Unwrap(cx, obj);
++    if (!self)
++        return JS_FALSE;
++
++    JSVariant in_v;
++
++    if (!jsval_to_JSVariant(cx, v, &in_v))
++        return JS_FALSE;
++
++    bool out_ok, out_bp;
++    
++    if (!self->CallHasInstance(in_v,
++                               &out_ok, &out_bp) ||
++        !out_ok)
++        return JS_FALSE;
++
++    *bp = out_bp;
++
++    return JS_TRUE;
++}
++
++/*static*/ JSBool
 +ObjectWrapperParent::CPOW_Equality(JSContext *cx, JSObject *obj, jsval v,
 +                                   JSBool *bp)
 +{
@@ -2511,7 +2557,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,104 @@
 +#ifndef mozilla_jsipc_ObjectWrapperParent_h__
 +#define mozilla_jsipc_ObjectWrapperParent_h__
 +
@@ -2592,11 +2638,7 @@ new file mode 100644
 +                   jsval *rval);
 +    
 +    static JSBool
-+    CPOW_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
-+    {
-+        printf("Calling CPOW_HasInstance...\n"); fflush(0);
-+        return JS_TRUE;
-+    }
++    CPOW_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp);
 +
 +    static JSBool
 +    CPOW_Equality(JSContext *cx, JSObject *obj, jsval v, JSBool *bp);
@@ -2624,7 +2666,7 @@ diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,86 @@
 +include protocol "PObjectWrapperLiaison.ipdl";
 +
 +include "mozilla/jsipc/CPOWTypes.h";
@@ -2704,6 +2746,10 @@ new file mode 100644
 +    rpc Construct(JSVariant[] argv)
 +        returns (bool ok,
 +                 PObjectWrapper rval);
++
++    rpc HasInstance(JSVariant v)
++        returns (bool ok,
++                 bool bp);
 +};
 +
 +}}
