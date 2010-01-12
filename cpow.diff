@@ -26,29 +26,25 @@ diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFra
     * Get the docshell from the frame loader.
     */
    readonly attribute nsIDocShell docShell;
-@@ -99,16 +100,22 @@ interface nsIFrameLoader : nsISupports
-                                   in long aClickCount,
-                                   in long aModifiers,
-                                   [optional] in boolean aIgnoreRootScrollFrame);
- 
-   /**
-    * Activate event forwarding from client (remote frame) to parent.
-    */
-   void activateFrameEvent(in AString aType, in boolean capture);
-+
-+  /**
-+   * Define a property on |where| named |property| whose value is a JSObject
-+   * corresponding to the global object of the child frame.
-+   */
-+  void attachChildGlobal(in nsIVariant where, in AString property);
- };
- 
- native alreadyAddRefed_nsFrameLoader(already_AddRefed<nsFrameLoader>);
- 
- [scriptable, uuid(8f3b12a0-35ae-4e0d-9152-8e0d7e49d446)]
+@@ -112,16 +113,18 @@ native alreadyAddRefed_nsFrameLoader(alr
  interface nsIFrameLoaderOwner : nsISupports
  {
    /**
+    * The frame loader owned by this nsIFrameLoaderOwner
+    */
+   readonly attribute nsIFrameLoader frameLoader;
+   [noscript, notxpcom] alreadyAddRefed_nsFrameLoader GetFrameLoader();
+ 
++  readonly attribute nsIVariant crossProcessObjectWrapper;
++
+   /**
+    * Swap frame loaders with the given nsIFrameLoaderOwner.  This may
+    * only be posible in a very limited range of circumstances, or
+    * never, depending on the object implementing this interface.
+    *
+    * @throws NS_ERROR_NOT_IMPLEMENTED if the swapping logic is not
+    *   implemented for the two given frame loader owners.
+    * @throws NS_ERROR_DOM_SECURITY_ERR if the swap is not allowed on
 diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader.cpp
 --- a/content/base/src/nsFrameLoader.cpp
 +++ b/content/base/src/nsFrameLoader.cpp
@@ -72,7 +68,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
    {
    }
  
-@@ -1520,16 +1523,42 @@ nsFrameLoader::ActivateFrameEvent(const 
+@@ -1520,16 +1523,33 @@ nsFrameLoader::ActivateFrameEvent(const 
    if (mChildProcess) {
      mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
      return NS_OK;
@@ -82,29 +78,20 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
  }
  
 +NS_IMETHODIMP
-+nsFrameLoader::AttachChildGlobal(nsIVariant* where,
-+                                 const nsAString& property)
++nsFrameLoader::GetCrossProcessObjectWrapper(nsIVariant** cpow)
 +{
 +  nsIXPConnect* xpc;
 +  nsIThreadJSContextStack* stack;
 +  JSContext* cx;
-+  jsval v;
-+  JSObject* obj;
-+  JSString* str;
-+  jsid interned_id;
++  JSObject* global;
 +
 +  if ((xpc = nsContentUtils::XPConnect()) &&
 +      (stack = nsContentUtils::ThreadJSContextStack()) &&
 +      NS_SUCCEEDED(stack->Peek(&cx)) && cx &&
-+      NS_SUCCEEDED(xpc->VariantToJS(cx, JS_GetScopeChain(cx), where, &v)) &&
-+      JS_ValueToObject(cx, v, &obj) &&
-+      (str = JS_NewUCStringCopyN(cx, property.BeginReading(),
-+                                 property.Length())) &&
-+      JS_ValueToId(cx, STRING_TO_JSVAL(str), &interned_id) &&
-+      mChildProcess->AttachGlobal(cx, obj, interned_id))
-+    return NS_OK;
-+
-+  return NS_ERROR_FAILURE;
++      mChildProcess->GetGlobalJSObject(cx, &global))
++    return xpc->JSToVariant(cx, OBJECT_TO_JSVAL(global), cpow);
++  
++  return NS_ERROR_NOT_AVAILABLE;
 +}
 +
  nsresult
@@ -115,6 +102,128 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
    NS_ENSURE_STATE(dest->mDocShell);
  
    nsCOMPtr<nsIDOMDocument> dummy = do_GetInterface(dest->mDocShell);
+diff --git a/content/base/src/nsFrameLoader.h b/content/base/src/nsFrameLoader.h
+--- a/content/base/src/nsFrameLoader.h
++++ b/content/base/src/nsFrameLoader.h
+@@ -127,16 +127,17 @@ public:
+   // frame loader owner needs to call this, and pass in the two references to
+   // nsRefPtrs for frame loaders that need to be swapped.
+   nsresult SwapWithOtherLoader(nsFrameLoader* aOther,
+                                nsRefPtr<nsFrameLoader>& aFirstToSwap,
+                                nsRefPtr<nsFrameLoader>& aSecondToSwap);
+ 
+ #ifdef MOZ_IPC
+   mozilla::dom::PIFrameEmbeddingParent* GetChildProcess();
++  NS_IMETHOD GetCrossProcessObjectWrapper(nsIVariant** cpow);
+ #endif
+ 
+ private:
+ 
+ #ifdef MOZ_IPC
+   bool ShouldUseRemoteProcess();
+ #endif
+ 
+diff --git a/content/base/src/nsObjectLoadingContent.cpp b/content/base/src/nsObjectLoadingContent.cpp
+--- a/content/base/src/nsObjectLoadingContent.cpp
++++ b/content/base/src/nsObjectLoadingContent.cpp
+@@ -700,16 +700,22 @@ nsObjectLoadingContent::GetFrameLoader()
+ }
+ 
+ NS_IMETHODIMP
+ nsObjectLoadingContent::SwapFrameLoaders(nsIFrameLoaderOwner* aOtherLoader)
+ {
+   return NS_ERROR_NOT_IMPLEMENTED;
+ }
+ 
++NS_IMETHODIMP
++nsObjectLoadingContent::GetCrossProcessObjectWrapper(nsIVariant**)
++{
++  return NS_ERROR_NOT_IMPLEMENTED;
++}
++
+ // nsIObjectLoadingContent
+ NS_IMETHODIMP
+ nsObjectLoadingContent::GetActualType(nsACString& aType)
+ {
+   aType = mContentType;
+   return NS_OK;
+ }
+ 
+diff --git a/content/html/content/src/nsGenericHTMLElement.cpp b/content/html/content/src/nsGenericHTMLElement.cpp
+--- a/content/html/content/src/nsGenericHTMLElement.cpp
++++ b/content/html/content/src/nsGenericHTMLElement.cpp
+@@ -2779,16 +2779,23 @@ nsGenericHTMLFrameElement::GetFrameLoade
+ 
+ NS_IMETHODIMP
+ nsGenericHTMLFrameElement::SwapFrameLoaders(nsIFrameLoaderOwner* aOtherOwner)
+ {
+   // We don't support this yet
+   return NS_ERROR_NOT_IMPLEMENTED;
+ }
+ 
++NS_IMETHODIMP
++nsGenericHTMLFrameElement::GetCrossProcessObjectWrapper(nsIVariant**)
++{
++  // We don't support this yet
++  return NS_ERROR_NOT_IMPLEMENTED;
++}
++
+ nsresult
+ nsGenericHTMLFrameElement::LoadSrc()
+ {
+   nsresult rv = EnsureFrameLoader();
+   NS_ENSURE_SUCCESS(rv, rv);
+ 
+   if (!mFrameLoader) {
+     return NS_OK;
+diff --git a/content/xul/content/src/nsXULElement.cpp b/content/xul/content/src/nsXULElement.cpp
+--- a/content/xul/content/src/nsXULElement.cpp
++++ b/content/xul/content/src/nsXULElement.cpp
+@@ -2070,16 +2070,22 @@ nsXULElement::SwapFrameLoaders(nsIFrameL
+     }
+ 
+     return
+         ourSlots->mFrameLoader->SwapWithOtherLoader(otherSlots->mFrameLoader,
+                                                     ourSlots->mFrameLoader,
+                                                     otherSlots->mFrameLoader);
+ }
+ 
++NS_IMETHODIMP
++nsXULElement::GetCrossProcessObjectWrapper(nsIVariant** cpow)
++{
++    nsRefPtr<nsFrameLoader> frameLoader(GetFrameLoader());
++    return frameLoader->GetCrossProcessObjectWrapper(cpow);
++}
+ 
+ NS_IMETHODIMP
+ nsXULElement::GetParentTree(nsIDOMXULMultiSelectControlElement** aTreeElement)
+ {
+     for (nsIContent* current = GetParent(); current;
+          current = current->GetParent()) {
+         if (current->NodeInfo()->Equals(nsGkAtoms::listbox,
+                                         kNameSpaceID_XUL)) {
+diff --git a/content/xul/content/src/nsXULElement.h b/content/xul/content/src/nsXULElement.h
+--- a/content/xul/content/src/nsXULElement.h
++++ b/content/xul/content/src/nsXULElement.h
+@@ -579,16 +579,18 @@ public:
+     virtual PRInt32 IntrinsicState() const;
+ 
+     nsresult GetStyle(nsIDOMCSSStyleDeclaration** aStyle);
+ 
+     nsresult GetFrameLoader(nsIFrameLoader** aFrameLoader);
+     already_AddRefed<nsFrameLoader> GetFrameLoader();
+     nsresult SwapFrameLoaders(nsIFrameLoaderOwner* aOtherOwner);
+ 
++    NS_IMETHOD GetCrossProcessObjectWrapper(nsIVariant** cpow);
++
+     virtual void RecompileScriptEventListeners();
+ 
+     // This function should ONLY be used by BindToTree implementations.
+     // The function exists solely because XUL elements store the binding
+     // parent as a member instead of in the slots, as nsGenericElement does.
+     void SetXULBindingParent(nsIContent* aBindingParent)
+     {
+       mBindingParent = aBindingParent;
 diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 --- a/dom/ipc/ContentProcessChild.cpp
 +++ b/dom/ipc/ContentProcessChild.cpp
@@ -234,7 +343,7 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
  
  namespace mozilla {
  namespace dom {
-@@ -177,10 +179,44 @@ ContentProcessParent::AllocPNecko()
+@@ -177,10 +179,49 @@ ContentProcessParent::AllocPNecko()
  
  bool 
  ContentProcessParent::DeallocPNecko(PNeckoParent* necko)
@@ -261,6 +370,11 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 +RecvPObjectWrapperLiaisonConstructor(PObjectWrapperLiaisonParent* actor,
 +                                     const JSRuntimeOwner& jsro)
 +{
++    // TODO This method can go away once IPDL supports multiple managers,
++    // for then PObjectWrapper can be managed by PIFrameEmbeddingParent
++    // and PTestShellParent, instead of their common parent
++    // PContentProcess.
++    
 +    switch (jsro.type()) {
 +    case JSRuntimeOwner::TPIFrameEmbeddingParent:
 +        {
@@ -600,9 +714,9 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
 +        mObjectWrapperLiaison = static_cast<ObjectWrapperLiaisonParent*>(powlp);
 +    }
 +
-+    bool AttachGlobal(JSContext* cx, JSObject* to, jsid id) {
++    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
 +        return (mObjectWrapperLiaison &&
-+                mObjectWrapperLiaison->AttachGlobal(cx, to, id));
++                mObjectWrapperLiaison->GetGlobalJSObject(cx, globalp));
 +    }
 +
  protected:
@@ -1756,14 +1870,14 @@ new file mode 100644
 +    }
 +
 +    PObjectWrapperChild* GetOrCreateWrapper(JSObject* obj,
-+                                            bool attachAsGlobal = false)
++                                            bool makeGlobal = false)
 +    {
 +        if (!obj) // Don't wrap nothin'!
 +            return NULL;
 +        PObjectWrapperChild* wrapper;
 +        while (!mResidentObjectTable.Get(obj, &wrapper))
 +            mResidentObjectTable.Put(obj, SendPObjectWrapperConstructor(AllocPObjectWrapper(obj),
-+                                                                        attachAsGlobal));
++                                                                        makeGlobal));
 +        return wrapper;
 +    }
 +    
@@ -1803,7 +1917,7 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperL
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,97 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* vim: set sw=4 ts=8 et tw=80 : */
 +/* ***** BEGIN LICENSE BLOCK *****
@@ -1859,12 +1973,7 @@ new file mode 100644
 +{
 +public:
 +
-+    bool AttachGlobal(JSContext* cx, JSObject* to, jsid id)
-+    {
-+        return (mGlobal &&
-+                JS_DefinePropertyById(cx, to, id, mGlobal->GetJSVal(cx), NULL,
-+                                      NULL, 0));
-+    }
++    ObjectWrapperLiaisonParent() : mGlobal(NULL) {}
 +
 +    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) const {
 +        if (!mGlobal)
@@ -1886,17 +1995,17 @@ new file mode 100644
 +    }
 +
 +    bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
-+                                       const bool& attachAsGlobal)
++                                       const bool& makeGlobal)
 +    {
-+        // TODO implement a notion of "reparenting"
-+        if (attachAsGlobal)
++        if (makeGlobal)
 +            mGlobal = static_cast<ObjectWrapperParent*>(actor);
 +        return true;
 +    }
 +
 +    bool DeallocPObjectWrapper(PObjectWrapperParent* actor)
 +    {
-+        // TODO what if actor == mGlobal?
++        if (static_cast<ObjectWrapperParent*>(actor) == mGlobal)
++            mGlobal = NULL;
 +        delete actor;
 +        return true;
 +    }
@@ -2805,7 +2914,7 @@ new file mode 100644
 +    manages PObjectWrapper;
 +parent:
 +    __delete__();
-+    sync PObjectWrapper(bool attachAsGlobal);
++    sync PObjectWrapper(bool makeGlobal);
 +};
 +
 +}}
@@ -2898,7 +3007,7 @@ diff --git a/js/src/ipc/tests/adhoc/test.xul b/js/src/ipc/tests/adhoc/test.xul
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/adhoc/test.xul
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,76 @@
 +<?xml version="1.0"?>
 +<?xml-stylesheet href="chrome://global/skin" type="text/css"?>
 +<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
@@ -2907,11 +3016,9 @@ new file mode 100644
 +  <script type="application/javascript">
 +
 +    function getChildGlobal() {
-+      var page = document.getElementById("page");
-+      if (!("contentGlobalObject" in page))
-+        page.QueryInterface(Components.interfaces.nsIFrameLoaderOwner)
-+            .frameLoader.attachChildGlobal(page, "contentGlobalObject");
-+      return page.contentGlobalObject;
++      var page = document.getElementById("page"),
++          owner = page.QueryInterface(Components.interfaces.nsIFrameLoaderOwner);
++      return owner.crossProcessObjectWrapper;
 +    }
 +
 +    var cpow_tests = {

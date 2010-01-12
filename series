@@ -1,5 +1,4 @@
 tolerate-browserchrome-failure.diff
 run_test_on_client_patch_521922.diff
 cpow.diff
-cpow-browser-property.diff
 test_cpow.diff
