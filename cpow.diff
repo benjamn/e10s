@@ -245,7 +245,7 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
  
  ContentProcessChild::ContentProcessChild()
      : mQuit(PR_FALSE)
-@@ -123,16 +124,29 @@ ContentProcessChild::AllocPNecko()
+@@ -123,16 +124,33 @@ ContentProcessChild::AllocPNecko()
  
  bool 
  ContentProcessChild::DeallocPNecko(PNeckoChild* necko)
@@ -257,6 +257,10 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 +PObjectWrapperLiaisonChild*
 +ContentProcessChild::AllocPObjectWrapperLiaison(const JSRuntimeOwner&)
 +{
++    NS_NOTREACHED("ContentProcessChild::AllocPObjectWrapperLiaison does not "
++                  "have enough information to allocate instances of "
++                  "ObjectWrapperLiaisonChild (see "
++                  "TabChild::CreateObjectWrapperLiaisonAndAttachGlobalObject).");
 +    return NULL;
 +}
 +
