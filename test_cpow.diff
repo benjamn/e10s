@@ -54,7 +54,7 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
 --- a/dom/ipc/ContentProcessChild.h
 +++ b/dom/ipc/ContentProcessChild.h
-@@ -67,16 +67,17 @@ public:
+@@ -64,16 +64,17 @@ public:
          return sSingleton;
      }
  
@@ -75,7 +75,7 @@ diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
 diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 --- a/dom/ipc/ContentProcessParent.cpp
 +++ b/dom/ipc/ContentProcessParent.cpp
-@@ -206,17 +206,21 @@ RecvPObjectWrapperLiaisonConstructor(POb
+@@ -211,17 +211,21 @@ RecvPObjectWrapperLiaisonConstructor(POb
      case JSRuntimeOwner::TPIFrameEmbeddingParent:
          {
              const TabParent* tp =
@@ -233,7 +233,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnviron
 diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
 --- a/js/src/ipc/Makefile.in
 +++ b/js/src/ipc/Makefile.in
-@@ -58,13 +58,17 @@ EXPORTS_mozilla/jsipc = \
+@@ -21,13 +21,17 @@ EXPORTS_mozilla/jsipc = \
    ObjectWrapperChild.h \
    $(NULL)
  
@@ -266,27 +266,6 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
  ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
      : mContext(cx)
-@@ -387,18 +388,18 @@ ObjectWrapperChild::AnswerNewResolve(con
- {
-     jsid interned_id;
-     
-     *ok = JS_FALSE;
-     *obj2 = NULL;
-     
-     JSAutoRequest request(mContext);
- 
--    printf("new-resolving \"%s\"...\n", NS_ConvertUTF16toUTF8(id).get());
--    fflush(0);
-+    CLOG(("new-resolving \"%s\"...\n",
-+          NS_ConvertUTF16toUTF8(id).get()));
- 
-     if (!jsid_from_nsString(mContext, id, &interned_id))
-         return false;
- 
-     JSPropertyDescriptor desc;
-     if (!JS_GetPropertyDescriptorById(mContext, mObj, interned_id, flags, &desc))
-         return true;
- 
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
@@ -303,9 +282,9 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
  namespace {
  
+     // This shorthand saves a LOT of typing.
      typedef ObjectWrapperParent _;
- 
-@@ -254,21 +255,25 @@ jsval_to_nsString(JSContext* cx, jsval f
+@@ -255,21 +256,25 @@ jsval_to_nsString(JSContext* cx, jsval f
      JSString* str;
      if ((str = JS_ValueToString(cx, from))) {
          *to = JS_GetStringChars(str);
@@ -332,7 +311,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
      if (AutoResolveFlag::IsSet(cx, obj))
          return JS_TRUE;
-@@ -280,17 +285,18 @@ ObjectWrapperParent::CPOW_AddProperty(JS
+@@ -281,17 +286,18 @@ ObjectWrapperParent::CPOW_AddProperty(JS
  
      return self->CallAddProperty(in_id);
  }    
@@ -352,7 +331,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      nsString in_id;
  
      if (!jsval_to_nsString(cx, id, &in_id))
-@@ -304,17 +310,18 @@ ObjectWrapperParent::CPOW_GetProperty(JS
+@@ -305,17 +311,18 @@ ObjectWrapperParent::CPOW_GetProperty(JS
              out_ok &&
              self->jsval_from_JSVariant(cx, out_v, vp));
  }
@@ -372,7 +351,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      nsString in_id;
      JSVariant in_v;
  
-@@ -330,17 +337,18 @@ ObjectWrapperParent::CPOW_SetProperty(JS
+@@ -331,17 +338,18 @@ ObjectWrapperParent::CPOW_SetProperty(JS
              out_ok &&
              self->jsval_from_JSVariant(cx, out_v, vp));
  }    
@@ -445,7 +424,7 @@ diff --git a/js/src/ipc/tests/unit/cpow_child.js b/js/src/ipc/tests/unit/cpow_ch
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/cpow_child.js
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,52 @@
 +var data = {
 +  answer: 42,
 +  nested: { objects: { work: "yes they do" } },
@@ -460,8 +439,11 @@ new file mode 100644
 +  }
 +};
 +
-+var empty = function() {};
++var empty = function() {
++  this.try_to_delete = "just try";
++};
 +empty.prototype = {
++  try_to_delete: "bwahaha",
 +  inherited: "inherited",
 +  method: function() {
 +    return "called"
@@ -499,7 +481,7 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,114 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -508,6 +490,7 @@ new file mode 100644
 +  var obj = getChildGlobalObject();
 +
 +  test_properties(obj.data);
++  test_delete(obj.data);
 +  test_toString(obj.data);
 +  test_inheritance(obj.data);
 +  test_constructor(obj.data.constructor);
@@ -540,6 +523,14 @@ new file mode 100644
 +  do_check_true("call" in data.arr[2]);
 +
 +  do_check_eq(data.arr[3], "last");
++}
++
++function test_delete(data) {
++  do_check_eq(data.derived.try_to_delete, "just try");
++  do_check_true(delete data.derived.try_to_delete);
++  do_check_eq(data.derived.try_to_delete, "bwahaha");
++  do_check_true(delete data.derived.try_to_delete);
++  do_check_eq(data.derived.try_to_delete, "bwahaha");
 +}
 +
 +function test_toString(data) {
