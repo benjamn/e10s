@@ -1529,7 +1529,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,598 @@
+@@ -0,0 +1,597 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +#include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -1617,6 +1617,7 @@ new file mode 100644
 +void
 +ObjectWrapperParent::ActorDestroy(ActorDestroyReason)
 +{
++    // See GetJSObject, Unwrap.
 +    *mObjSlotContents = NULL;
 +}
 +    
@@ -1626,7 +1627,7 @@ new file mode 100644
 +    JSClass* clasp = const_cast<JSClass*>(&_::sCPOW_JSClass.base);
 +    if (!mObj) {
 +        mObj = JS_NewObject(cx, clasp, NULL, NULL);
-+        *mObjSlotContents = this;
++        *mObjSlotContents = this; // See ActorDestroy, Unwrap.
 +        JS_SetReservedSlot(cx, mObj, sWrappedObjSlot,
 +                           PRIVATE_TO_JSVAL(mObjSlotContents));
 +        JS_SetReservedSlot(cx, mObj, sFlagsSlot, JSVAL_ZERO);
@@ -1646,6 +1647,7 @@ new file mode 100644
 +    if (!JS_GetReservedSlot(cx, obj, sWrappedObjSlot, &info))
 +        return NULL;
 +
++    // See ActorDestroy, GetJSObject.
 +    ObjectWrapperParent* self =
 +        *static_cast<ObjectWrapperParent**>(JSVAL_TO_PRIVATE(info));
 +
@@ -1672,7 +1674,9 @@ new file mode 100644
 +            return true;
 +        }
 +    case JSTYPE_FUNCTION:
-+        return false; // TODO allow iff CPOW?
++        // CPOW-wrapped functions have JSTYPE_OBJECT, so this function
++        // must be unknown to the child process.
++        return false;
 +    case JSTYPE_STRING:
 +        *to = nsString(JS_GetStringChars(JSVAL_TO_STRING(from)));
 +        return true;
@@ -1765,9 +1769,6 @@ new file mode 100644
 +static bool
 +jsid_from_int(JSContext* cx, int from, jsid* to)
 +{
-+    // TODO check the outparams more generally
-+    if (!to)
-+        return true;
 +    jsval v = INT_TO_JSVAL(from);
 +    return JS_ValueToId(cx, v, to);
 +}
@@ -1775,8 +1776,6 @@ new file mode 100644
 +static bool
 +jsid_from_nsString(JSContext* cx, const nsString& from, jsid* to)
 +{
-+    if (!to)
-+        return true;
 +    JSString* str = JS_NewUCStringCopyZ(cx, from.BeginReading());
 +    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
 +}
@@ -1898,7 +1897,7 @@ new file mode 100644
 +    return (CallNewEnumerateInit(&out_ok, &out_state, &out_id) &&
 +            out_ok &&
 +            jsval_from_JSVariant(cx, out_state, statep) &&
-+            jsid_from_int(cx, out_id, idp));
++            (!idp || jsid_from_int(cx, out_id, idp)));
 +}
 +
 +JSBool
@@ -2034,7 +2033,7 @@ new file mode 100644
 +    ObjectWrapperParent* receiver = Unwrap(cx, obj);
 +    if (!receiver) {
 +        // Substitute child global for parent global object.
-+        // TODO First make sure we're really replacing the global object.
++        // TODO First make sure we're really replacing the global object?
 +        ObjectWrapperLiaisonParent* manager =
 +            static_cast<ObjectWrapperLiaisonParent*>(function->Manager());
 +        receiver = manager->GetGlobalObjectWrapper();
