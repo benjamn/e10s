@@ -445,7 +445,7 @@ diff --git a/js/src/ipc/tests/adhoc/test.xul b/js/src/ipc/tests/adhoc/test.xul
            alert("has " + keys[i] + "? " + (keys[i] in obj));
          alert("done resolving");
        },
-@@ -49,17 +43,17 @@
+@@ -49,17 +43,20 @@
          var foo = child.foo,
              self = foo.self;
          alert("foo == self? " + (foo == self));
@@ -455,7 +455,10 @@ diff --git a/js/src/ipc/tests/adhoc/test.xul b/js/src/ipc/tests/adhoc/test.xul
  
      function test_cpow() {
 -      var child = getChildGlobal();
-+      var child = document.getElementById("page").crossProcessObjectWrapper;
++      var page = document.getElementById("page"),
++          owner = page.QueryInterface(Components.interfaces.nsIFrameLoaderOwner),
++          child = owner.crossProcessObjectWrapper;
++
        cpow_tests.construct(child.foo);
        cpow_tests.resolve(child.location, "href hostname");
        cpow_tests.iterate(child.location);
