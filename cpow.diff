@@ -278,7 +278,8 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
 --- a/dom/ipc/ContentProcessChild.h
 +++ b/dom/ipc/ContentProcessChild.h
-@@ -40,16 +40,21 @@
+@@ -39,16 +39,18 @@
+ #ifndef mozilla_dom_ContentProcessChild_h
  #define mozilla_dom_ContentProcessChild_h
  
  #include "mozilla/dom/PContentProcessChild.h"
@@ -286,12 +287,9 @@ diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
  #include "nsTArray.h"
  #include "nsAutoPtr.h"
  
++using namespace mozilla::jsipc;
++
  namespace mozilla {
-+
-+namespace jsipc {
-+class PObjectWrapperLiaisonChild;
-+}
-+
  namespace dom {
  
  class ContentProcessChild : public PContentProcessChild
@@ -299,8 +297,7 @@ diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
  public:
      ContentProcessChild();
      virtual ~ContentProcessChild();
- 
-@@ -66,16 +71,20 @@ public:
+@@ -66,16 +68,20 @@ public:
      virtual bool DeallocPIFrameEmbedding(PIFrameEmbeddingChild*);
  
      virtual PTestShellChild* AllocPTestShell();
@@ -396,28 +393,26 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 diff --git a/dom/ipc/ContentProcessParent.h b/dom/ipc/ContentProcessParent.h
 --- a/dom/ipc/ContentProcessParent.h
 +++ b/dom/ipc/ContentProcessParent.h
-@@ -48,16 +48,20 @@
+@@ -42,16 +42,18 @@
+ #include "base/waitable_event_watcher.h"
+ 
+ #include "mozilla/dom/PContentProcessParent.h"
+ #include "mozilla/ipc/GeckoChildProcessHost.h"
+ 
+ #include "nsIObserver.h"
  #include "mozilla/Monitor.h"
  
++using namespace mozilla::jsipc;
++
  namespace mozilla {
  
  namespace ipc {
  class TestShellParent;
  }
  
-+namespace jsipc {
-+class PObjectWrapperLiaisonParent;
-+}
-+
  namespace dom {
  
- class TabParent;
- 
- class ContentProcessParent : public PContentProcessParent,
-                              public nsIObserver
- {
- private:
-@@ -95,16 +99,20 @@ private:
+@@ -95,16 +97,20 @@ private:
      virtual bool DeallocPIFrameEmbedding(PIFrameEmbeddingParent* frame);
  
      virtual PTestShellParent* AllocPTestShell();
@@ -476,7 +471,7 @@ diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
 + * We might like to have two separate PObjectWrapperLiaison constructors,
 + * one accepting a PIFrameEmbeddingChild and the other a PTestShell.
 + * Alas, IPDL constructors can't be overloaded, so we'll settle for a
-+ * single constructor that accepts a single union-type parameter.
++ * single constructor that accepts a union-type parameter.
 + */
 +union JSRuntimeOwner {
 +    PIFrameEmbedding;
@@ -504,50 +499,6 @@ diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
  
  }
  }
-diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
---- a/dom/ipc/PIFrameEmbedding.ipdl
-+++ b/dom/ipc/PIFrameEmbedding.ipdl
-@@ -34,19 +34,22 @@
-  * and other provisions required by the GPL or the LGPL. If you do not delete
-  * the provisions above, a recipient may use your version of this file under
-  * the terms of any one of the MPL, the GPL or the LGPL.
-  *
-  * ***** END LICENSE BLOCK ***** */
- 
- include protocol "PContentProcess.ipdl";
- include protocol "PDocumentRenderer.ipdl";
-+include protocol "PObjectWrapperLiaison.ipdl";
-+include protocol "PObjectWrapper.ipdl";
- 
- include "mozilla/TabTypes.h";
- include "TabMessageUtils.h";
-+include "mozilla/jsipc/CPOWTypes.h";
- 
- using MagicWindowHandle;
- using RemoteDOMEvent;
- 
- namespace mozilla {
- namespace dom {
- 
- rpc protocol PIFrameEmbedding
-@@ -62,16 +65,17 @@ parent:
-      * When child sends this message, parent should move focus to
-      * the next or previous focusable element.
-      */
-     moveFocus(bool forward);
- 
-     sendEvent(RemoteDOMEvent aEvent);
- 
-     rpc createWindow() returns (PIFrameEmbedding window);
-+
- child:
-     createWidget(MagicWindowHandle parentWidget);
- 
-     loadURL(nsCString uri);
- 
-     move(PRUint32 x,
-          PRUint32 y,
-          PRUint32 width,
 diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 --- a/dom/ipc/TabChild.cpp
 +++ b/dom/ipc/TabChild.cpp
@@ -670,7 +621,7 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
 diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
 --- a/dom/ipc/TabParent.h
 +++ b/dom/ipc/TabParent.h
-@@ -35,25 +35,29 @@
+@@ -35,25 +35,30 @@
   * the terms of any one of the MPL, the GPL or the LGPL.
   *
   * ***** END LICENSE BLOCK ***** */
@@ -680,7 +631,6 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
  
  #include "mozilla/dom/PIFrameEmbeddingParent.h"
 +#include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
-+#include "jsapi.h"
  
  #include "mozilla/ipc/GeckoChildProcessHost.h"
  
@@ -691,6 +641,8 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
  class nsIDOMElement;
  
 +using namespace mozilla::jsipc;
++struct JSContext;
++struct JSObject;
 +
  namespace mozilla {
  namespace dom {
@@ -700,7 +652,7 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
  public:
      TabParent();
      virtual ~TabParent();
-@@ -77,17 +81,28 @@ public:
+@@ -77,17 +82,28 @@ public:
              const PRInt32& x,
              const PRInt32& y,
              const PRInt32& w,
@@ -729,110 +681,6 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
  } // namespace mozilla
  
  #endif
-diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
---- a/dom/ipc/test.xul
-+++ b/dom/ipc/test.xul
-@@ -1,13 +1,13 @@
- <?xml version="1.0"?>
- <?xml-stylesheet href="chrome://global/skin" type="text/css"?>
- <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
-         width="800" height="800" orient="vertical">
--  <script>
-+  <script type="application/javascript;version=1.7">
- 
-     function dumpClientRect(r) {
-       dump(r.left + "," + r.top + "," + r.right + "," +
-            r.bottom + "," + r.width + "," + r.height + "\n");
-     }
- 
-     function handleMozAfterPaint(e) {
-       return;
-@@ -72,23 +72,84 @@
- 
-     function openWindow() {
-       window.open('chrome://global/content/test-ipc.xul', '_blank', 'chrome,resizable,width=800,height=800');
-     }
-     
-     function closeWindow() {
-       window.close();
-     }
-+
-+    function getChildGlobal() {
-+      var page = document.getElementById("page");
-+      if (!("contentGlobalObject" in page))
-+        page.QueryInterface(Components.interfaces.nsIFrameLoaderOwner)
-+            .frameLoader.attachChildGlobal(page, "contentGlobalObject");
-+      return page.contentGlobalObject;
-+    }
-+
-+    var cpow_tests = {
-+      resolve: function(obj, keys) {
-+        alert("resolving");
-+        keys = keys.split(" ");
-+        for (var i = 0; i != keys.length; ++i)
-+          alert("has " + keys[i] + "? " + (keys[i] in obj));
-+        alert("done resolving");
-+      },
-+      iterate: function(obj) {
-+        alert("iterating");
-+        for (var k in obj)
-+          alert("key: " + k);
-+        alert("done iterating");
-+      },
-+      navigate: function(child) {
-+        alert("navigating");
-+        child.location = prompt("Where to?");
-+        setTimeout(function() {
-+          alert(child.location.href);
-+        }, 2000);
-+      },
-+      construct: function(foo) {
-+        alert(new foo.ctor("answer", 42).answer);
-+        alert(new foo.fakector("answer", 42).answer);
-+      },
-+      indirect_eval: function(child) {
-+        alert(child.eval("location.href"));
-+        alert(new child.Function("x", "return x+1")(42));
-+      },
-+      funcalls: function(foo) {
-+        var fn = foo.f;
-+        alert(foo.f(2));
-+        alert(fn.call.call(fn, foo, 3));
-+      },
-+      equality: function(child) {
-+        var foo = child.foo,
-+            self = foo.self;
-+        alert("foo == self? " + (foo == self));
-+        alert("foo === self? " + (foo === self));
-+      }
-+    }
-+
-+    function test_cpow() {
-+      var child = getChildGlobal();
-+      cpow_tests.construct(child.foo);
-+      cpow_tests.resolve(child.location, "href hostname");
-+      cpow_tests.iterate(child.location);
-+      cpow_tests.iterate(child.foo);
-+      cpow_tests.funcalls(child.foo);
-+      cpow_tests.equality(child);
-+    }
-   </script>
- 
-   <toolbar id="controls">
-     <toolbarbutton label="Back"/>
-     <toolbarbutton label="Forward"/>
-     <textbox onchange="loadURL(this.value)" flex="1" id="URL"/>
-     <toolbarbutton onclick="restart()" label="Recover"/>
-     <toolbarbutton onclick="randomClick()" label="random click"/>
-     <toolbarbutton onclick="openWindow()" label="open new window"/>
-     <toolbarbutton onclick="closeWindow()" label="close this window"/>
-+    <toolbarbutton onclick="test_cpow()" label="CPOW"/>
-   </toolbar>
- 
--  <browser type="content" src="http://www.google.com/" flex="1" id="page" remote="true"
-+  <browser type="content" src="http://people.mozilla.org/~bnewman/cpow/" flex="1" id="page" remote="true"
-            onfocus="this.QueryInterface(Components.interfaces.nsIFrameLoaderOwner).frameLoader.activateRemoteFrame();"/>
- </window>
 diff --git a/ipc/ipdl/Makefile.in b/ipc/ipdl/Makefile.in
 --- a/ipc/ipdl/Makefile.in
 +++ b/ipc/ipdl/Makefile.in
@@ -854,233 +702,11 @@ diff --git a/ipc/ipdl/Makefile.in b/ipc/ipdl/Makefile.in
  endif
  
  vpath %.ipdl $(topsrcdir)
-diff --git a/ipc/ipdl/test/cxx/Makefile.in b/ipc/ipdl/test/cxx/Makefile.in
---- a/ipc/ipdl/test/cxx/Makefile.in
-+++ b/ipc/ipdl/test/cxx/Makefile.in
-@@ -54,16 +54,17 @@ EXPORTS_mozilla/_ipdltest =  \
- 
- LIBRARY_NAME = $(MODULE)_s
- LIBXUL_LIBRARY = 1
- FORCE_STATIC_LIB = 1
- EXPORT_LIBRARY = 1
- 
- # Please keep these organized in the order "easy"-to-"hard"
- IPDLTESTS = \
-+  TestObjectWrapperLiaison \
-   TestSanity  \
-   TestRPCErrorCleanup \
-   TestLatency \
-   TestRPCRaces \
-   TestManyChildAllocs  \
-   TestDesc \
-   TestShmem \
-   TestShutdown \
-diff --git a/ipc/ipdl/test/cxx/PTestObjectWrapperLiaison.ipdl b/ipc/ipdl/test/cxx/PTestObjectWrapperLiaison.ipdl
-new file mode 100644
---- /dev/null
-+++ b/ipc/ipdl/test/cxx/PTestObjectWrapperLiaison.ipdl
-@@ -0,0 +1,31 @@
-+
-+namespace mozilla {
-+namespace _ipdltest {
-+
-+
-+protocol PTestObjectWrapperLiaison {
-+
-+child:
-+    Ping(int zero, float zeroPtFive);
-+
-+parent:
-+    Pong(int one, float zeroPtTwoFive);
-+
-+both:
-+    UNREACHED();
-+
-+
-+state PING:
-+    send Ping goto PONG;
-+
-+state PONG:
-+    recv Pong goto DEAD;
-+
-+    // hmm ... maybe support this idiom natively?
-+state DEAD:
-+    send UNREACHED goto DEAD;
-+};
-+
-+
-+} // namespace mozilla
-+} // namespace _ipdltest
-diff --git a/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.cpp b/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.cpp
-new file mode 100644
---- /dev/null
-+++ b/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.cpp
-@@ -0,0 +1,97 @@
-+#include "TestObjectWrapperLiaison.h"
-+
-+#include "nsIAppShell.h"
-+
-+#include "nsCOMPtr.h"
-+#include "nsServiceManagerUtils.h" // do_GetService()
-+#include "nsWidgetsCID.h"       // NS_APPSHELL_CID
-+
-+#include "IPDLUnitTests.h"      // fail etc.
-+
-+namespace mozilla {
-+namespace _ipdltest {
-+
-+//-----------------------------------------------------------------------------
-+// parent
-+
-+TestObjectWrapperLiaisonParent::TestObjectWrapperLiaisonParent()
-+{
-+    MOZ_COUNT_CTOR(TestObjectWrapperLiaisonParent);
-+}
-+
-+TestObjectWrapperLiaisonParent::~TestObjectWrapperLiaisonParent()
-+{
-+    MOZ_COUNT_DTOR(TestObjectWrapperLiaisonParent);
-+}
-+
-+void
-+TestObjectWrapperLiaisonParent::Main()
-+{
-+    if (!SendPing(0, 0.5f))
-+        fail("sending Ping");
-+}
-+
-+
-+bool
-+TestObjectWrapperLiaisonParent::RecvPong(const int& one, const float& zeroPtTwoFive)
-+{
-+    if (1 != one)
-+        fail("invalid argument `%d', should have been `1'", one);
-+
-+    if (0.25f != zeroPtTwoFive)
-+        fail("invalid argument `%g', should have been `0.25'", zeroPtTwoFive);
-+
-+    passed("sent ping/received pong");
-+
-+    static NS_DEFINE_CID(kAppShellCID, NS_APPSHELL_CID);
-+    nsCOMPtr<nsIAppShell> appShell (do_GetService(kAppShellCID));
-+    appShell->Exit();
-+
-+    return true;
-+}
-+
-+bool
-+TestObjectWrapperLiaisonParent::RecvUNREACHED()
-+{
-+    fail("unreached");
-+    return false;               // not reached
-+}
-+
-+
-+//-----------------------------------------------------------------------------
-+// child
-+
-+TestObjectWrapperLiaisonChild::TestObjectWrapperLiaisonChild()
-+{
-+    MOZ_COUNT_CTOR(TestObjectWrapperLiaisonChild);
-+}
-+
-+TestObjectWrapperLiaisonChild::~TestObjectWrapperLiaisonChild()
-+{
-+    MOZ_COUNT_DTOR(TestObjectWrapperLiaisonChild);
-+}
-+
-+bool
-+TestObjectWrapperLiaisonChild::RecvPing(const int& zero, const float& zeroPtFive)
-+{
-+    if (0 != zero)
-+        fail("invalid argument `%d', should have been `0'", zero);
-+
-+    if (0.5f != zeroPtFive)
-+        fail("invalid argument `%g', should have been `0.5'", zeroPtFive);
-+
-+    if (!SendPong(1, 0.25f))
-+        fail("sending Pong");
-+    return true;
-+}
-+
-+bool
-+TestObjectWrapperLiaisonChild::RecvUNREACHED()
-+{
-+    fail("unreached");
-+    return false;               // not reached
-+}
-+
-+
-+} // namespace _ipdltest
-+} // namespace mozilla
-diff --git a/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.h b/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.h
-new file mode 100644
---- /dev/null
-+++ b/ipc/ipdl/test/cxx/TestObjectWrapperLiaison.h
-@@ -0,0 +1,44 @@
-+#ifndef mozilla__ipdltest_TestObjectWrapperLiaison_h
-+#define mozilla__ipdltest_TestObjectWrapperLiaison_h 1
-+
-+
-+#include "mozilla/_ipdltest/PTestObjectWrapperLiaisonParent.h"
-+#include "mozilla/_ipdltest/PTestObjectWrapperLiaisonChild.h"
-+
-+namespace mozilla {
-+namespace _ipdltest {
-+
-+
-+class TestObjectWrapperLiaisonParent :
-+    public PTestObjectWrapperLiaisonParent
-+{
-+public:
-+    TestObjectWrapperLiaisonParent();
-+    virtual ~TestObjectWrapperLiaisonParent();
-+
-+    void Main();
-+
-+protected:    
-+    virtual bool RecvPong(const int& one, const float& zeroPtTwoFive);
-+    virtual bool RecvUNREACHED();
-+};
-+
-+
-+class TestObjectWrapperLiaisonChild :
-+    public PTestObjectWrapperLiaisonChild
-+{
-+public:
-+    TestObjectWrapperLiaisonChild();
-+    virtual ~TestObjectWrapperLiaisonChild();
-+
-+protected:
-+    virtual bool RecvPing(const int& zero, const float& zeroPtFive);
-+    virtual bool RecvUNREACHED();
-+};
-+
-+
-+} // namespace _ipdltest
-+} // namespace mozilla
-+
-+
-+#endif // ifndef mozilla__ipdltest_TestObjectWrapperLiaison_h
-diff --git a/ipc/ipdl/test/cxx/ipdl.mk b/ipc/ipdl/test/cxx/ipdl.mk
---- a/ipc/ipdl/test/cxx/ipdl.mk
-+++ b/ipc/ipdl/test/cxx/ipdl.mk
-@@ -9,9 +9,10 @@ IPDLSRCS =					\
-   PTestManyChildAllocsSub.ipdl			\
-   PTestRPCErrorCleanup.ipdl			\
-   PTestRPCRaces.ipdl				\
-   PTestSanity.ipdl				\
-   PTestShmem.ipdl				\
-   PTestShutdown.ipdl				\
-   PTestShutdownSub.ipdl				\
-   PTestShutdownSubsub.ipdl			\
-+  PTestObjectWrapperLiaison.ipdl				\
-   $(NULL)
 diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/CPOWTypes.h
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,62 @@
 +#ifndef mozilla_jsipc_ObjectWrapperLiaisonTypes_h__
 +#define mozilla_jsipc_ObjectWrapperLiaisonTypes_h__
 +
@@ -1131,6 +757,7 @@ new file mode 100644
 + 
 +}
 +
++// TODO Use a more standard logging mechanism.
 +#if 1
 +#define CLOG(PRINTF_ARGS) \
 +    PR_BEGIN_MACRO        \
@@ -1146,44 +773,7 @@ diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/Makefile.in
-@@ -0,0 +1,70 @@
-+# ***** BEGIN LICENSE BLOCK *****
-+# Version: MPL 1.1/GPL 2.0/LGPL 2.1
-+#
-+# The contents of this file are subject to the Mozilla Public License Version
-+# 1.1 (the "License"); you may not use this file except in compliance with
-+# the License. You may obtain a copy of the License at
-+# http://www.mozilla.org/MPL/
-+#
-+# Software distributed under the License is distributed on an "AS IS" basis,
-+# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
-+# for the specific language governing rights and limitations under the
-+# License.
-+#
-+# The Original Code is mozilla.org code.
-+#
-+# The Initial Developer of the Original Code is
-+#   The Mozilla Foundation.
-+# Portions created by the Initial Developer are Copyright (C) 2009
-+# the Initial Developer. All Rights Reserved.
-+#
-+# Contributor(s):
-+#   Ben Newman <b{enjam,newma}n@mozilla.com>
-+#
-+# Alternatively, the contents of this file may be used under the terms of
-+# either the GNU General Public License Version 2 or later (the "GPL"), or
-+# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
-+# in which case the provisions of the GPL or the LGPL are applicable instead
-+# of those above. If you wish to allow use of your version of this file only
-+# under the terms of either the GPL or the LGPL, and not to allow others to
-+# use your version of this file under the terms of the MPL, indicate your
-+# decision by deleting the provisions above and replace them with the notice
-+# and other provisions required by the GPL or the LGPL. If you do not delete
-+# the provisions above, a recipient may use your version of this file under
-+# the terms of any one of the MPL, the GPL or the LGPL.
-+#
-+# ***** END LICENSE BLOCK *****
-+
+@@ -0,0 +1,33 @@
 +DEPTH		= ../../..
 +topsrcdir	= @top_srcdir@
 +srcdir		= @srcdir@
@@ -1221,7 +811,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,488 @@
+@@ -0,0 +1,485 @@
 +#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +
@@ -1378,6 +968,25 @@ new file mode 100644
 +    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
 +}
 +
++#if 0
++// The general schema for ObjectWrapperChild::Answer* methods:
++bool
++ObjectWrapperChild::AnswerSomething(/* in-parameters */
++                                    /* out-parameters */)
++{
++    // initialize out-parameters for failure
++    JSAutoRequest request(mContext);
++    // validate in-parameters, else return false
++    // successfully perform local JS operations, else return true
++    // perform out-parameter conversions, else return false
++    return true;
++}
++// There's an important subtlety here: though a local JS operation may
++// fail, leaving out-parameters uninitialized, we must initialize all
++// out-parameters when reporting success (returning true) to the IPC
++// messaging system.  See AnswerGetProperty for illustration.
++#endif
++
 +bool
 +ObjectWrapperChild::AnswerAddProperty(const nsString& id)
 +{
@@ -1400,7 +1009,6 @@ new file mode 100644
 +    jsid interned_id;
 +    jsval val;
 +
-+    // TODO create a serializable type that initializes itself?
 +    *ok = JS_FALSE;
 +
 +    JSAutoRequest request(mContext);
@@ -1410,6 +1018,11 @@ new file mode 100644
 +
 +    *ok = JS_GetPropertyById(mContext, mObj, interned_id, &val);
 +
++    // Since we fully expect this call to jsval_to_JSVariant to return
++    // true, we can't just leave vp uninitialized when JS_GetPropertyById
++    // returns JS_FALSE.  This pitfall could be avoided in general if IPDL
++    // ensured that outparams were pre-initialized to some default value
++    // (XXXfixme cjones?).
 +    return jsval_to_JSVariant(mContext, *ok ? val : JSVAL_VOID, vp);
 +}
 +
@@ -1477,35 +1090,6 @@ new file mode 100644
 +    JSCLASS_NO_OPTIONAL_MEMBERS
 +};
 +
-+#if 0
-+bool
-+ObjectWrapperChild::AnswerSomething(/* in-parameters */
-+                                    /* out-parameters */)
-+{
-+    // variable declarations
-+    // infallible failure initializations
-+    JSAutoRequest request(mContext);
-+    // validate in-parameters, or return false
-+    // successfully perform local JS operations, or return true
-+    // prepare out-parameters
-+    return true;
-+}
-+#endif
-+
-+bool
-+ObjectWrapperChild::AnswerEnumerate(/* no in-parameters */
-+                                    JSBool* ok, nsTArray<nsString>* ids)
-+{
-+    JSAutoRequest request(mContext);
-+    JSIdArray* ida = JS_Enumerate(mContext, mObj);
-+    if (!ids->SetCapacity(ida->length))
-+        return *ok = JS_FALSE;
-+    for (int i = 0; i < ida->length; ++i)
-+        jsid_to_nsString(mContext, ida->vector[i], ids->AppendElement());
-+    JS_DestroyIdArray(mContext, ida);
-+    return *ok = JS_TRUE;
-+}
-+    
 +bool
 +ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
 +                                           JSBool* ok, JSVariant* statep, int* idp)
@@ -1616,11 +1200,11 @@ new file mode 100644
 +    
 +    JSAutoRequest request(mContext);
 +
-+    printf("new-resolving \"%s\"...\n", NS_ConvertUTF16toUTF8(id).get());
-+    fflush(0);
-+
 +    if (!jsid_from_nsString(mContext, id, &interned_id))
 +        return false;
++
++    CLOG(("new-resolving \"%s\"...\n",
++          NS_ConvertUTF16toUTF8(id).get()));
 +
 +    JSPropertyDescriptor desc;
 +    if (!JS_GetPropertyDescriptorById(mContext, mObj, interned_id, flags, &desc))
@@ -1690,6 +1274,9 @@ new file mode 100644
 +    JSVariant override;
 +    bool answer = AnswerCall(*rval = wrapper,
 +                             argv, ok, &override);
++
++    // Allow the constructor to return a different object from the one
++    // allocated for it by the JS_NewObject call above.
 +    if (answer &&
 +        override.type() == JSVariant::TPObjectWrapperChild &&
 +        (wrapper = override.get_PObjectWrapperChild()))
@@ -1714,7 +1301,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,83 @@
 +#ifndef mozilla_jsipc_ObjectWrapperChild_h__
 +#define mozilla_jsipc_ObjectWrapperChild_h__
 +
@@ -1768,9 +1355,6 @@ new file mode 100644
 +    bool AnswerDelProperty(const nsString& id,
 +                           JSBool* ok, JSVariant* vp);
 +
-+    bool AnswerEnumerate(/* no in-parameters */
-+                         JSBool* ok, nsTArray<nsString>* ids);
-+    
 +    bool AnswerNewEnumerateInit(/* no in-parameters */
 +                                JSBool* ok, JSVariant* statep, int* idp);
 +
@@ -1805,46 +1389,7 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonChild.h b/js/src/ipc/ObjectWrapperLi
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonChild.h
-@@ -0,0 +1,107 @@
-+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
-+/* vim: set sw=4 ts=8 et tw=80 : */
-+/* ***** BEGIN LICENSE BLOCK *****
-+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
-+ *
-+ * The contents of this file are subject to the Mozilla Public License Version
-+ * 1.1 (the "License"); you may not use this file except in compliance with
-+ * the License. You may obtain a copy of the License at
-+ * http://www.mozilla.org/MPL/
-+ *
-+ * Software distributed under the License is distributed on an "AS IS" basis,
-+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
-+ * for the specific language governing rights and limitations under the
-+ * License.
-+ *
-+ * The Original Code is mozilla.org code.
-+ *
-+ * The Initial Developer of the Original Code is
-+ *   The Mozilla Foundation.
-+ * Portions created by the Initial Developer are Copyright (C) 2009
-+ * the Initial Developer. All Rights Reserved.
-+ *
-+ * Contributor(s):
-+ *   Ben Newman <b{enjam,newma}n@mozilla.com>
-+ *
-+ * Alternatively, the contents of this file may be used under the terms of
-+ * either the GNU General Public License Version 2 or later (the "GPL"), or
-+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
-+ * in which case the provisions of the GPL or the LGPL are applicable instead
-+ * of those above. If you wish to allow use of your version of this file only
-+ * under the terms of either the GPL or the LGPL, and not to allow others to
-+ * use your version of this file under the terms of the MPL, indicate your
-+ * decision by deleting the provisions above and replace them with the notice
-+ * and other provisions required by the GPL or the LGPL. If you do not delete
-+ * the provisions above, a recipient may use your version of this file under
-+ * the terms of any one of the MPL, the GPL or the LGPL.
-+ *
-+ * ***** END LICENSE BLOCK ***** */
-+
+@@ -0,0 +1,68 @@
 +#ifndef mozilla_jsipc_ObjectWrapperLiaisonChild_h__
 +#define mozilla_jsipc_ObjectWrapperLiaisonChild_h__
 +
@@ -1917,46 +1462,7 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperL
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
-@@ -0,0 +1,97 @@
-+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
-+/* vim: set sw=4 ts=8 et tw=80 : */
-+/* ***** BEGIN LICENSE BLOCK *****
-+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
-+ *
-+ * The contents of this file are subject to the Mozilla Public License Version
-+ * 1.1 (the "License"); you may not use this file except in compliance with
-+ * the License. You may obtain a copy of the License at
-+ * http://www.mozilla.org/MPL/
-+ *
-+ * Software distributed under the License is distributed on an "AS IS" basis,
-+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
-+ * for the specific language governing rights and limitations under the
-+ * License.
-+ *
-+ * The Original Code is mozilla.org code.
-+ *
-+ * The Initial Developer of the Original Code is
-+ *   The Mozilla Foundation.
-+ * Portions created by the Initial Developer are Copyright (C) 2009
-+ * the Initial Developer. All Rights Reserved.
-+ *
-+ * Contributor(s):
-+ *   Ben Newman <b{enjam,newma}n@mozilla.com>
-+ *
-+ * Alternatively, the contents of this file may be used under the terms of
-+ * either the GNU General Public License Version 2 or later (the "GPL"), or
-+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
-+ * in which case the provisions of the GPL or the LGPL are applicable instead
-+ * of those above. If you wish to allow use of your version of this file only
-+ * under the terms of either the GPL or the LGPL, and not to allow others to
-+ * use your version of this file under the terms of the MPL, indicate your
-+ * decision by deleting the provisions above and replace them with the notice
-+ * and other provisions required by the GPL or the LGPL. If you do not delete
-+ * the provisions above, a recipient may use your version of this file under
-+ * the terms of any one of the MPL, the GPL or the LGPL.
-+ *
-+ * ***** END LICENSE BLOCK ***** */
-+
+@@ -0,0 +1,58 @@
 +#ifndef mozilla_jsipc_ObjectWrapperLiaisonParent_h__
 +#define mozilla_jsipc_ObjectWrapperLiaisonParent_h__
 +
@@ -2019,7 +1525,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,637 @@
+@@ -0,0 +1,598 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +#include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -2031,6 +1537,7 @@ new file mode 100644
 +
 +namespace {
 +
++    // This shorthand saves a LOT of typing.
 +    typedef ObjectWrapperParent _;
 +
 +    static const uintN sFlagsSlot = 0, sWrappedObjSlot = 1;
@@ -2377,30 +1884,6 @@ new file mode 100644
 +            jsval_from_JSVariant(cx, out_v, vp));
 +}
 +
-+/*static*/ JSBool
-+ObjectWrapperParent::CPOW_Enumerate(JSContext* cx, JSObject* obj)
-+{
-+    ObjectWrapperParent* self = Unwrap(cx, obj);
-+    if (!self)
-+        return JS_FALSE;
-+
-+    JSBool out_ok;
-+    nsTArray<nsString> out_ids;
-+    
-+    if (self->CallEnumerate(&out_ok, &out_ids) && out_ok) {
-+        AutoResolveFlag arf(cx, obj);
-+        jsid interned_id;
-+        for (PRUint32 i = 0; i < out_ids.Length(); i++)
-+            // Apparently the enumerate hook gets used during GC (by
-+            // js_CloseNativeIterator), so we can't do any JS allocation!
-+            if (jsid_from_nsString(cx, out_ids.ElementAt(i), &interned_id))
-+                JS_DefinePropertyById(cx, obj, interned_id, JSVAL_VOID, NULL, NULL,
-+                                      JSPROP_ENUMERATE | JSPROP_SHARED);
-+        return JS_TRUE;
-+    }
-+    return JS_FALSE;
-+}
-+
 +JSBool
 +ObjectWrapperParent::NewEnumerateInit(JSContext* cx, jsval* statep, jsid* idp)
 +{
@@ -2472,23 +1955,6 @@ new file mode 100644
 +    return JS_FALSE;
 +}
 +
-+/*static*/ JSObject*
-+ObjectWrapperParent::CPOW_Iterator(JSContext *cx, JSObject *obj,
-+                                   JSBool keysonly)
-+{
-+    CLOG(("Calling CPOW_Iterator...\n"));
-+    
-+    ObjectWrapperParent* self = Unwrap(cx, obj);
-+    if (!self)
-+        return JS_FALSE;
-+
-+    PObjectWrapperParent* iterator;
-+    if (self->CallIterator(&iterator) && iterator)
-+        return static_cast<ObjectWrapperParent*>(iterator)->GetJSObject(cx);
-+
-+    return JSVAL_NULL;
-+}
-+    
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_NewResolve(JSContext *cx, JSObject *obj, jsval id,
 +                                     uintN flags, JSObject **objp)
@@ -2564,6 +2030,7 @@ new file mode 100644
 +    ObjectWrapperParent* receiver = Unwrap(cx, obj);
 +    if (!receiver) {
 +        // Substitute child global for parent global object.
++        // TODO First make sure we're really replacing the global object.
 +        ObjectWrapperLiaisonParent* manager =
 +            static_cast<ObjectWrapperLiaisonParent*>(function->Manager());
 +        receiver = manager->GetGlobalObjectWrapper();
@@ -2661,7 +2128,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,99 @@
 +#ifndef mozilla_jsipc_ObjectWrapperParent_h__
 +#define mozilla_jsipc_ObjectWrapperParent_h__
 +
@@ -2711,8 +2178,6 @@ new file mode 100644
 +    static JSBool
 +    CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
 +
-+    static JSBool CPOW_Enumerate(JSContext* cx, JSObject* obj);
-+    
 +    JSBool NewEnumerateInit(JSContext* cx, jsval* statep, jsid* idp);
 +    JSBool NewEnumerateNext(JSContext* cx, jsval* statep, jsid* idp);
 +    JSBool NewEnumerateDestroy(JSContext* cx, jsval state);
@@ -2720,9 +2185,6 @@ new file mode 100644
 +    CPOW_NewEnumerate(JSContext *cx, JSObject *obj, JSIterateOp enum_op,
 +                      jsval *statep, jsid *idp);
 +
-+    static JSObject*
-+    CPOW_Iterator(JSContext *cx, JSObject *obj, JSBool keysonly);
-+    
 +    static JSBool
 +    CPOW_NewResolve(JSContext *cx, JSObject *obj, jsval id, uintN flags,
 +                    JSObject **objp);
@@ -2770,7 +2232,7 @@ diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,84 @@
 +include protocol "PObjectWrapperLiaison.ipdl";
 +
 +include "mozilla/jsipc/CPOWTypes.h";
@@ -2789,14 +2251,15 @@ new file mode 100644
 +    nsString;
 +    int;
 +    double;
-+    bool; // JSBool is JSIntn
++    bool; // We'd like to use JSBool here, but JSBool is really JSIntn,
++          // and IPC::ParamTraits mistakes JSIntn for int.
 +    null_t;
 +};
 +
 +rpc protocol PObjectWrapper
 +{
 +    manager PObjectWrapperLiaison;
-+    
++
 +child:
 +    __delete__(); // unroot
 +
@@ -2815,10 +2278,6 @@ new file mode 100644
 +        returns (JSBool ok,
 +                 JSVariant vp);
 +
-+    rpc Enumerate()
-+        returns (JSBool ok,
-+                 nsString[] ids);
-+                 
 +    rpc NewEnumerateInit()
 +        returns (JSBool ok,
 +                 JSVariant statep,
@@ -2833,7 +2292,7 @@ new file mode 100644
 +
 +    rpc Iterator()
 +        returns (PObjectWrapper iterator);
-+    
++
 +    rpc NewResolve(nsString id,
 +                   int flags)
 +        returns (JSBool ok,
@@ -2862,46 +2321,7 @@ diff --git a/js/src/ipc/PObjectWrapperLiaison.ipdl b/js/src/ipc/PObjectWrapperLi
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapperLiaison.ipdl
-@@ -0,0 +1,55 @@
-+/* -*- Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 8 -*- */
-+/* vim: set sw=4 ts=8 et tw=80 ft=cpp : */
-+/* ***** BEGIN LICENSE BLOCK *****
-+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
-+ *
-+ * The contents of this file are subject to the Mozilla Public License Version
-+ * 1.1 (the "License"); you may not use this file except in compliance with
-+ * the License. You may obtain a copy of the License at
-+ * http://www.mozilla.org/MPL/
-+ *
-+ * Software distributed under the License is distributed on an "AS IS" basis,
-+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
-+ * for the specific language governing rights and limitations under the
-+ * License.
-+ *
-+ * The Original Code is mozilla.org code.
-+ *
-+ * The Initial Developer of the Original Code is
-+ *   The Mozilla Foundation.
-+ * Portions created by the Initial Developer are Copyright (C) 2009
-+ * the Initial Developer. All Rights Reserved.
-+ *
-+ * Contributor(s):
-+ *   Ben Newman <b{enjam,newma}n@mozilla.com>
-+ *
-+ * Alternatively, the contents of this file may be used under the terms of
-+ * either the GNU General Public License Version 2 or later (the "GPL"), or
-+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
-+ * in which case the provisions of the GPL or the LGPL are applicable instead
-+ * of those above. If you wish to allow use of your version of this file only
-+ * under the terms of either the GPL or the LGPL, and not to allow others to
-+ * use your version of this file under the terms of the MPL, indicate your
-+ * decision by deleting the provisions above and replace them with the notice
-+ * and other provisions required by the GPL or the LGPL. If you do not delete
-+ * the provisions above, a recipient may use your version of this file under
-+ * the terms of any one of the MPL, the GPL or the LGPL.
-+ *
-+ * ***** END LICENSE BLOCK ***** */
-+
+@@ -0,0 +1,16 @@
 +include protocol "PContentProcess.ipdl";
 +include protocol "PObjectWrapper.ipdl";
 +
@@ -2922,44 +2342,7 @@ diff --git a/js/src/ipc/ipdl.mk b/js/src/ipc/ipdl.mk
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ipdl.mk
-@@ -0,0 +1,41 @@
-+# ***** BEGIN LICENSE BLOCK *****
-+# Version: MPL 1.1/GPL 2.0/LGPL 2.1
-+#
-+# The contents of this file are subject to the Mozilla Public License Version
-+# 1.1 (the "License"); you may not use this file except in compliance with
-+# the License. You may obtain a copy of the License at
-+# http://www.mozilla.org/MPL/
-+#
-+# Software distributed under the License is distributed on an "AS IS" basis,
-+# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
-+# for the specific language governing rights and limitations under the
-+# License.
-+#
-+# The Original Code is mozilla.org code.
-+#
-+# The Initial Developer of the Original Code is
-+#   The Mozilla Foundation.
-+# Portions created by the Initial Developer are Copyright (C) 2009
-+# the Initial Developer. All Rights Reserved.
-+#
-+# Contributor(s):
-+#   Ben Newman <b{enjam,newma}n@mozilla.com>
-+#
-+# Alternatively, the contents of this file may be used under the terms of
-+# either the GNU General Public License Version 2 or later (the "GPL"), or
-+# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
-+# in which case the provisions of the GPL or the LGPL are applicable instead
-+# of those above. If you wish to allow use of your version of this file only
-+# under the terms of either the GPL or the LGPL, and not to allow others to
-+# use your version of this file under the terms of the MPL, indicate your
-+# decision by deleting the provisions above and replace them with the notice
-+# and other provisions required by the GPL or the LGPL. If you do not delete
-+# the provisions above, a recipient may use your version of this file under
-+# the terms of any one of the MPL, the GPL or the LGPL.
-+#
-+# ***** END LICENSE BLOCK *****
-+
+@@ -0,0 +1,4 @@
 +IPDLSRCS = \
 +  PObjectWrapperLiaison.ipdl \
 +  PObjectWrapper.ipdl \
@@ -2976,7 +2359,7 @@ diff --git a/js/src/ipc/tests/adhoc/child.html b/js/src/ipc/tests/adhoc/child.ht
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/adhoc/child.html
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,27 @@
 +<html>
 +  <head>
 +  </head>
@@ -2984,19 +2367,20 @@ new file mode 100644
 +    <script>
 +      window.foo = {
 +        a: 42,
-+	b: 37 * 73,
++        b: 37 * 73,
 +        ctor: function(name, value) {
-+	  this[name] = value;
++          this[name] = value;
 +        },
-+	fakector: function(name, value) {
-+	  window[name] = "oyez";
-+	  this[name] = value;
-+	  return window;
++	    fakector: function(name, value) {
++	      window[name] = "oyez";
++	      this[name] = value;
++	      return window;
 +        },
-+        f: function(x) { 
-+	  document.body.appendChild(document.createElement("div")).innerHTML = "called f(" + x + ")";
-+	  return x + Math.PI;
-+	}
++        f: function(x) {
++	      document.body.appendChild(document.createElement("div")).innerHTML =
++            "called f(" + x + ")";
++	      return x + Math.PI;
++	    }
 +      };
 +      window.foo.self = window.foo;
 +    </script>
