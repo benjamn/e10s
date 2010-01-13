@@ -1,0 +1,151 @@
+diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
+--- a/dom/ipc/TabParent.cpp
++++ b/dom/ipc/TabParent.cpp
+@@ -54,16 +54,17 @@
+ 
+ using mozilla::ipc::BrowserProcessSubThread;
+ using mozilla::ipc::DocumentRendererParent;
+ 
+ namespace mozilla {
+ namespace dom {
+ 
+ TabParent::TabParent()
++  : mObjectWrapperLiaison(nsnull)
+ {
+ }
+ 
+ TabParent::~TabParent()
+ {
+ }
+ 
+ bool
+diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
+--- a/js/src/ipc/ObjectWrapperChild.cpp
++++ b/js/src/ipc/ObjectWrapperChild.cpp
+@@ -11,17 +11,18 @@ ObjectWrapperChild::ObjectWrapperChild(J
+     : mContext(cx)
+     , mObj(obj)
+ {
+     JSAutoRequest request(mContext);
+     JS_AddNamedRoot(mContext, (void*)&mObj,
+                     "mozilla::jsipc::ObjectWrapperChild-rooted JSObject*");
+ }
+ 
+-ObjectWrapperChild::~ObjectWrapperChild()
++void
++ObjectWrapperChild::ActorDestroy(ActorDestroyReason why)
+ {
+     JSAutoRequest request(mContext);
+     JS_RemoveRoot(mContext, (void*)&mObj);
+ }
+ 
+ bool
+ ObjectWrapperChild::JSObject_to_JSVariant(JSContext* cx, JSObject* from,
+                                           JSVariant* to)
+diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
+--- a/js/src/ipc/ObjectWrapperChild.h
++++ b/js/src/ipc/ObjectWrapperChild.h
+@@ -11,17 +11,16 @@ namespace jsipc {
+ class ObjectWrapperLiaisonChild;
+   
+ class ObjectWrapperChild
+     : public PObjectWrapperChild
+ {
+ public:
+ 
+     ObjectWrapperChild(JSContext* cx, JSObject* obj);
+-    ~ObjectWrapperChild();
+ 
+     JSObject* GetJSObject() const { return mObj; }
+     
+ private:
+ 
+     JSContext* const mContext;
+     JSObject* const mObj;
+ 
+@@ -35,16 +34,18 @@ private:
+                                         JSObject** to);
+     static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
+                                      jsval* to);
+ 
+     ObjectWrapperLiaisonChild* Manager();
+ 
+ protected:
+ 
++    void ActorDestroy(ActorDestroyReason why);
++
+     bool AnswerAddProperty(const nsString& id);
+ 
+     bool AnswerGetProperty(const nsString& id,
+                            JSBool* ok, JSVariant* vp);
+ 
+     bool AnswerSetProperty(const nsString& id, const JSVariant& v,
+                            JSBool* ok, JSVariant* vp);
+ 
+diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperLiaisonParent.h
+--- a/js/src/ipc/ObjectWrapperLiaisonParent.h
++++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
+@@ -1,55 +1,61 @@
+ #ifndef mozilla_jsipc_ObjectWrapperLiaisonParent_h__
+ #define mozilla_jsipc_ObjectWrapperLiaisonParent_h__
+ 
+ #include "mozilla/jsipc/PObjectWrapperLiaisonParent.h"
+ #include "mozilla/jsipc/ObjectWrapperParent.h"
+ 
+ #include "jsapi.h"
++#include "nsAutoJSValHolder.h"
+ 
+ namespace mozilla {
+ namespace jsipc {
+     
+ class ObjectWrapperLiaisonParent
+     : public PObjectWrapperLiaisonParent
+ {
+ public:
+ 
+     ObjectWrapperLiaisonParent() : mGlobal(NULL) {}
+ 
+-    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) const {
++    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
+         if (!mGlobal)
+             return false;
+-        *globalp = mGlobal->GetJSObject(cx);
++        // TODO Are we rooting too late?
++        mGlobalHolder.Hold(cx);
++        mGlobalHolder = OBJECT_TO_JSVAL(*globalp = mGlobal->GetJSObject(cx));
+         return true;
+     }
+ 
+     ObjectWrapperParent* GetGlobalObjectWrapper() const {
+         return mGlobal;
+     }
+ 
+ private:
+ 
+     ObjectWrapperParent* mGlobal;
++    nsAutoJSValHolder mGlobalHolder;
+ 
+     PObjectWrapperParent* AllocPObjectWrapper(const bool&) {
+         return new ObjectWrapperParent();
+     }
+ 
+     bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
+                                        const bool& makeGlobal)
+     {
+         if (makeGlobal)
+             mGlobal = static_cast<ObjectWrapperParent*>(actor);
+         return true;
+     }
+ 
+     bool DeallocPObjectWrapper(PObjectWrapperParent* actor)
+     {
++        // XXX This comparison should never succeed unless the OWL itself
++        // is going away.
+         if (static_cast<ObjectWrapperParent*>(actor) == mGlobal)
+             mGlobal = NULL;
+         delete actor;
+         return true;
+     }
+ 
+ };
+ 

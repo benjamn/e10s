@@ -2,3 +2,4 @@ tolerate-browserchrome-failure.diff
 run_test_on_client_patch_521922.diff
 cpow.diff
 test_cpow.diff
+child-destroy.diff
