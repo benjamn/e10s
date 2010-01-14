@@ -48,27 +48,26 @@ diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFra
 diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader.cpp
 --- a/content/base/src/nsFrameLoader.cpp
 +++ b/content/base/src/nsFrameLoader.cpp
-@@ -110,16 +110,19 @@
- #ifdef MOZ_IPC
- #include "ContentProcessParent.h"
- #include "TabParent.h"
- 
- using namespace mozilla;
- using namespace mozilla::dom;
- #endif
- 
+@@ -64,16 +64,18 @@
+ #include "nsIWebNavigation.h"
+ #include "nsIDocShell.h"
+ #include "nsIDocShellTreeItem.h"
+ #include "nsIDocShellTreeNode.h"
+ #include "nsIDocShellTreeOwner.h"
+ #include "nsIDocShellLoadInfo.h"
+ #include "nsIBaseWindow.h"
+ #include "nsContentUtils.h"
 +#include "nsIXPConnect.h"
 +#include "nsIJSContextStack.h"
-+
- class nsAsyncDocShellDestroyer : public nsRunnable
- {
- public:
-   nsAsyncDocShellDestroyer(nsIDocShell* aDocShell)
-     : mDocShell(aDocShell)
-   {
-   }
- 
-@@ -1520,16 +1523,33 @@ nsFrameLoader::ActivateFrameEvent(const 
+ #include "nsUnicharUtils.h"
+ #include "nsIScriptGlobalObject.h"
+ #include "nsIScriptSecurityManager.h"
+ #include "nsIScrollable.h"
+ #include "nsFrameLoader.h"
+ #include "nsIDOMEventTarget.h"
+ #include "nsIFrame.h"
+ #include "nsIFrameFrame.h"
+@@ -1520,16 +1522,34 @@ nsFrameLoader::ActivateFrameEvent(const 
    if (mChildProcess) {
      mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
      return NS_OK;
@@ -80,15 +79,16 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
 +NS_IMETHODIMP
 +nsFrameLoader::GetCrossProcessObjectWrapper(nsIVariant** cpow)
 +{
-+  nsIXPConnect* xpc;
-+  nsIThreadJSContextStack* stack;
-+  JSContext* cx;
-+  JSObject* global;
-+
-+  if ((xpc = nsContentUtils::XPConnect()) &&
-+      (stack = nsContentUtils::ThreadJSContextStack()) &&
-+      NS_SUCCEEDED(stack->Peek(&cx)) && cx &&
-+      mChildProcess->GetGlobalJSObject(cx, &global))
++  
++   nsIXPConnect* xpc;
++   nsIThreadJSContextStack* stack;
++   JSContext* cx;
++   JSObject* global;
++ 
++   if ((xpc = nsContentUtils::XPConnect()) &&
++       (stack = nsContentUtils::ThreadJSContextStack()) &&
++       NS_SUCCEEDED(stack->Peek(&cx)) && cx &&
++       mChildProcess->GetGlobalJSObject(cx, &global))
 +    return xpc->JSToVariant(cx, OBJECT_TO_JSVAL(global), cpow);
 +  
 +  return NS_ERROR_NOT_AVAILABLE;
@@ -472,7 +472,7 @@ diff --git a/dom/ipc/ContentProcessParent.h b/dom/ipc/ContentProcessParent.h
      virtual PNeckoParent* AllocPNecko();
      virtual bool DeallocPNecko(PNeckoParent* necko);
  
-+    virtual PObjectWrapperLiaisonParent* AllocPObjectWrapperLiaison(const JSRuntimeOwner& jsro);
++    virtual PObjectWrapperLiaisonParent* AllocPObjectWrapperLiaison(const JSRuntimeOwner&);
 +    virtual bool DeallocPObjectWrapperLiaison(PObjectWrapperLiaisonParent* actor);
 +    virtual bool RecvPObjectWrapperLiaisonConstructor(PObjectWrapperLiaisonParent* actor,
 +                                                      const JSRuntimeOwner& jsro);
@@ -669,6 +669,27 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
  }
  
  #endif // mozilla_tabs_TabChild_h
+diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
+--- a/dom/ipc/TabParent.cpp
++++ b/dom/ipc/TabParent.cpp
+@@ -54,16 +54,17 @@
+ 
+ using mozilla::ipc::BrowserProcessSubThread;
+ using mozilla::ipc::DocumentRendererParent;
+ 
+ namespace mozilla {
+ namespace dom {
+ 
+ TabParent::TabParent()
++  : mObjectWrapperLiaison(nsnull)
+ {
+ }
+ 
+ TabParent::~TabParent()
+ {
+ }
+ 
+ bool
 diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
 --- a/dom/ipc/TabParent.h
 +++ b/dom/ipc/TabParent.h
@@ -1626,7 +1647,7 @@ diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperL
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,66 @@
 +#ifndef mozilla_jsipc_ObjectWrapperLiaisonParent_h__
 +#define mozilla_jsipc_ObjectWrapperLiaisonParent_h__
 +
@@ -1634,6 +1655,7 @@ new file mode 100644
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +
 +#include "jsapi.h"
++#include "nsAutoJSValHolder.h"
 +
 +namespace mozilla {
 +namespace jsipc {
@@ -1645,10 +1667,11 @@ new file mode 100644
 +
 +    ObjectWrapperLiaisonParent() : mGlobal(NULL) {}
 +
-+    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) const {
++    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
 +        if (!mGlobal)
 +            return false;
-+        *globalp = mGlobal->GetJSObject(cx);
++        mGlobalHolder.Hold(cx);
++        mGlobalHolder = *globalp = mGlobal->GetJSObject(cx);
 +        return true;
 +    }
 +
@@ -1659,6 +1682,7 @@ new file mode 100644
 +private:
 +
 +    ObjectWrapperParent* mGlobal;
++    nsAutoJSValHolder mGlobalHolder;
 +
 +    PObjectWrapperParent* AllocPObjectWrapper(const bool&) {
 +        return new ObjectWrapperParent();
@@ -1667,15 +1691,20 @@ new file mode 100644
 +    bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
 +                                       const bool& makeGlobal)
 +    {
-+        if (makeGlobal)
++        if (makeGlobal) {
++            mGlobalHolder.Release();
 +            mGlobal = static_cast<ObjectWrapperParent*>(actor);
++        }
 +        return true;
 +    }
 +
 +    bool DeallocPObjectWrapper(PObjectWrapperParent* actor)
 +    {
-+        if (static_cast<ObjectWrapperParent*>(actor) == mGlobal)
++        if (mGlobal &&
++            mGlobal == static_cast<ObjectWrapperParent*>(actor)) {
++            mGlobalHolder.Release();
 +            mGlobal = NULL;
++        }
 +        delete actor;
 +        return true;
 +    }
