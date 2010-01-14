@@ -67,7 +67,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
  #include "nsIDOMEventTarget.h"
  #include "nsIFrame.h"
  #include "nsIFrameFrame.h"
-@@ -1520,16 +1522,34 @@ nsFrameLoader::ActivateFrameEvent(const 
+@@ -1513,16 +1515,34 @@ nsFrameLoader::ActivateFrameEvent(const 
    if (mChildProcess) {
      mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
      return NS_OK;
@@ -126,7 +126,7 @@ diff --git a/content/base/src/nsFrameLoader.h b/content/base/src/nsFrameLoader.h
 diff --git a/content/base/src/nsObjectLoadingContent.cpp b/content/base/src/nsObjectLoadingContent.cpp
 --- a/content/base/src/nsObjectLoadingContent.cpp
 +++ b/content/base/src/nsObjectLoadingContent.cpp
-@@ -700,16 +700,22 @@ nsObjectLoadingContent::GetFrameLoader()
+@@ -699,16 +699,22 @@ nsObjectLoadingContent::GetFrameLoader()
  }
  
  NS_IMETHODIMP
@@ -152,7 +152,7 @@ diff --git a/content/base/src/nsObjectLoadingContent.cpp b/content/base/src/nsOb
 diff --git a/content/html/content/src/nsGenericHTMLElement.cpp b/content/html/content/src/nsGenericHTMLElement.cpp
 --- a/content/html/content/src/nsGenericHTMLElement.cpp
 +++ b/content/html/content/src/nsGenericHTMLElement.cpp
-@@ -2779,16 +2779,23 @@ nsGenericHTMLFrameElement::GetFrameLoade
+@@ -2774,16 +2774,23 @@ nsGenericHTMLFrameElement::GetFrameLoade
  
  NS_IMETHODIMP
  nsGenericHTMLFrameElement::SwapFrameLoaders(nsIFrameLoaderOwner* aOtherOwner)
@@ -179,7 +179,7 @@ diff --git a/content/html/content/src/nsGenericHTMLElement.cpp b/content/html/co
 diff --git a/content/xul/content/src/nsXULElement.cpp b/content/xul/content/src/nsXULElement.cpp
 --- a/content/xul/content/src/nsXULElement.cpp
 +++ b/content/xul/content/src/nsXULElement.cpp
-@@ -2070,16 +2070,22 @@ nsXULElement::SwapFrameLoaders(nsIFrameL
+@@ -2061,16 +2061,22 @@ nsXULElement::SwapFrameLoaders(nsIFrameL
      }
  
      return
@@ -255,7 +255,7 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
  
  ContentProcessChild::ContentProcessChild()
      : mQuit(PR_FALSE)
-@@ -109,30 +112,61 @@ ContentProcessChild::AllocPTestShell()
+@@ -109,30 +112,63 @@ ContentProcessChild::AllocPTestShell()
  }
  
  bool
@@ -277,6 +277,8 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 +        (owlc = new ObjectWrapperLiaisonChild(cx)))
 +        SendPObjectWrapperLiaisonConstructor(owlc, actor)
 +            ->SendPObjectWrapperConstructor(true);
++
++    return true;
 +}
  
  PNeckoChild* 
@@ -2625,7 +2627,7 @@ diff --git a/toolkit/library/libxul-config.mk b/toolkit/library/libxul-config.mk
 diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
 --- a/toolkit/toolkit-makefiles.sh
 +++ b/toolkit/toolkit-makefiles.sh
-@@ -203,16 +203,20 @@ MAKEFILES_xpconnect="
+@@ -201,16 +201,20 @@ MAKEFILES_xpconnect="
    js/src/xpconnect/loader/Makefile
    js/src/xpconnect/tests/Makefile
    js/src/xpconnect/tests/components/Makefile
@@ -2646,7 +2648,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
  MAKEFILES_jsctypes="
    js/ctypes/Makefile
  "
-@@ -851,16 +855,17 @@ add_makefiles "
+@@ -850,16 +854,17 @@ add_makefiles "
    $MAKEFILES_db
    $MAKEFILES_dom
    $MAKEFILES_editor
@@ -2689,7 +2691,7 @@ diff --git a/toolkit/toolkit-tiers.mk b/toolkit/toolkit-tiers.mk
 diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
 --- a/toolkit/xre/nsEmbedFunctions.cpp
 +++ b/toolkit/xre/nsEmbedFunctions.cpp
-@@ -77,16 +77,18 @@
+@@ -82,16 +82,18 @@
  #include "mozilla/ipc/GeckoThread.h"
  #include "ScopedXREEmbed.h"
  
@@ -2708,7 +2710,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  #include "mozilla/_ipdltest/IPDLUnitTests.h"
  #include "mozilla/_ipdltest/IPDLUnitTestThreadChild.h"
  
-@@ -97,16 +99,20 @@ using mozilla::ipc::GeckoChildProcessHos
+@@ -102,16 +104,20 @@ using mozilla::ipc::GeckoChildProcessHos
  using mozilla::ipc::GeckoThread;
  using mozilla::ipc::BrowserProcessSubThread;
  using mozilla::ipc::ScopedXREEmbed;
@@ -2729,7 +2731,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  using mozilla::MonitorAutoEnter;
  
  using mozilla::startup::sChildProcessType;
-@@ -474,48 +480,66 @@ XRE_ShutdownChildProcess()
+@@ -493,48 +499,66 @@ XRE_ShutdownChildProcess()
      MessageLoop* ioLoop = XRE_GetIOMessageLoop();
      NS_ABORT_IF_FALSE(!!ioLoop, "Bad shutdown order");
  
@@ -2808,7 +2810,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
 diff --git a/xpcom/build/nsXULAppAPI.h b/xpcom/build/nsXULAppAPI.h
 --- a/xpcom/build/nsXULAppAPI.h
 +++ b/xpcom/build/nsXULAppAPI.h
-@@ -488,12 +488,18 @@ XRE_API(MessageLoop*,
+@@ -493,12 +493,18 @@ XRE_API(MessageLoop*,
  
  struct JSContext;
  struct JSString;
