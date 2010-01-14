@@ -35,9 +35,9 @@ new file mode 100644
 +++ b/js/src/ipc/tests/Makefile.in
 @@ -0,0 +1,13 @@
 +DEPTH		= ../../../..
-+topsrcdir	= /home/ben/dev/electrolysis
-+srcdir		= /home/ben/dev/electrolysis/js/src/ipc/tests
-+VPATH		= /home/ben/dev/electrolysis/js/src/ipc/tests
++topsrcdir	= @top_srcdir@
++srcdir		= @srcdir@
++VPATH		= @srcdir@
 +
 +include $(DEPTH)/config/autoconf.mk
 +
