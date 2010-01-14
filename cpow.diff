@@ -2161,7 +2161,7 @@ new file mode 100644
 +                                     uintN flags, JSObject **objp)
 +{
 +    CPOW_LOG(("Calling CPOW_NewResolve (%s)...",
-+              JS_GetTypeName(cx, JS_TypeOfValue(cx, id))));
++              JSVAL_TO_CSTR(cx, id)));
 +
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
