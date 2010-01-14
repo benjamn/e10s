@@ -1,3 +1,5 @@
+CPOW tests (bug 516522).
+
 diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
 --- a/js/src/ipc/Makefile.in
 +++ b/js/src/ipc/Makefile.in

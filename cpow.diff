@@ -588,7 +588,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
          NS_WARNING("mWebNav->LoadURI failed. Eating exception, what else can I do?");
      }
 +
-+    CreateObjectWrapperLiaisonAndAttachGlobalObject();
++    CreateObjectWrapperLiaisonAndSetGlobalObject();
 +    
      return true;
  }
@@ -598,7 +598,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -371,16 +382,49 @@ TabChild::RecvsendMouseEvent(const nsStr
+@@ -371,16 +382,48 @@ TabChild::RecvsendMouseEvent(const nsStr
    nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
@@ -625,9 +625,8 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +}
 +
 +void
-+TabChild::CreateObjectWrapperLiaisonAndAttachGlobalObject()
++TabChild::CreateObjectWrapperLiaisonAndSetGlobalObject()
 +{
-+
 +    JSContext* cx;
 +    PContentProcessChild* manager;
 +    mozilla::jsipc::ObjectWrapperLiaisonChild* owlc;
@@ -660,7 +659,7 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
  
  private:
      nsCOMPtr<nsIWebNavigation> mWebNav;
-+    void CreateObjectWrapperLiaisonAndAttachGlobalObject();
++    void CreateObjectWrapperLiaisonAndSetGlobalObject();
  
      DISALLOW_EVIL_CONSTRUCTORS(TabChild);
  };
