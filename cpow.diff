@@ -126,7 +126,7 @@ diff --git a/content/base/src/nsFrameLoader.h b/content/base/src/nsFrameLoader.h
 diff --git a/content/base/src/nsObjectLoadingContent.cpp b/content/base/src/nsObjectLoadingContent.cpp
 --- a/content/base/src/nsObjectLoadingContent.cpp
 +++ b/content/base/src/nsObjectLoadingContent.cpp
-@@ -699,16 +699,22 @@ nsObjectLoadingContent::GetFrameLoader()
+@@ -702,16 +702,22 @@ nsObjectLoadingContent::GetFrameLoader()
  }
  
  NS_IMETHODIMP
@@ -889,7 +889,7 @@ diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/CPOWTypes.h
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,63 @@
 +#ifndef mozilla_jsipc_ContextWrapperTypes_h__
 +#define mozilla_jsipc_ContextWrapperTypes_h__
 +
@@ -941,13 +941,12 @@ new file mode 100644
 +}
 +
 +// TODO Use a more standard logging mechanism.
-+#if 1
++#ifdef DEBUG
 +#define CPOW_LOG(PRINTF_ARGS) \
 +    PR_BEGIN_MACRO            \
 +    printf("CPOW | ");        \
 +    printf PRINTF_ARGS ;      \
 +    printf("\n");             \
-+    fflush(0);                \
 +    PR_END_MACRO
 +#else
 +#define CPOW_LOG(_)
