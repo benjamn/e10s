@@ -237,7 +237,7 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
  #include "mozilla/ipc/TestShellChild.h"
  #include "mozilla/net/NeckoChild.h"
 +#include "mozilla/ipc/XPCShellEnvironment.h"
-+#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
++#include "mozilla/jsipc/ContextWrapperChild.h"
  
  #include "nsXULAppAPI.h"
  
@@ -269,13 +269,13 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 +ContentProcessChild::RecvPTestShellConstructor(PTestShellChild* actor)
 +{
 +    XPCShellEnvironment* env;
-+    ObjectWrapperLiaisonChild* owlc;
++    ContextWrapperChild* cwc;
 +    JSContext* cx;
 +
 +    if ((env = static_cast<TestShellChild*>(actor)->GetXPCShell()) &&
 +        (cx = env->GetContext()) &&
-+        (owlc = new ObjectWrapperLiaisonChild(cx)))
-+        SendPObjectWrapperLiaisonConstructor(owlc, actor)
++        (cwc = new ContextWrapperChild(cx)))
++        SendPContextWrapperConstructor(cwc, actor)
 +            ->SendPObjectWrapperConstructor(true);
 +
 +    return true;
@@ -294,18 +294,18 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
      return true;
  }
  
-+PObjectWrapperLiaisonChild*
-+ContentProcessChild::AllocPObjectWrapperLiaison(const JSRuntimeOwner&)
++PContextWrapperChild*
++ContentProcessChild::AllocPContextWrapper(const JSRuntimeOwner&)
 +{
-+    NS_NOTREACHED("ContentProcessChild::AllocPObjectWrapperLiaison does not "
++    NS_NOTREACHED("ContentProcessChild::AllocPContextWrapper does not "
 +                  "have enough information to allocate instances of "
-+                  "ObjectWrapperLiaisonChild (see "
-+                  "TabChild::CreateObjectWrapperLiaisonAndAttachGlobalObject).");
++                  "ContextWrapperChild (see "
++                  "TabChild::CreateContextWrapperAndAttachGlobalObject).");
 +    return NULL;
 +}
 +
 +bool
-+ContentProcessChild::DeallocPObjectWrapperLiaison(PObjectWrapperLiaisonChild* actor)
++ContentProcessChild::DeallocPContextWrapper(PContextWrapperChild* actor)
 +{
 +    delete actor;
 +    return true;
@@ -356,8 +356,8 @@ diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
      virtual bool DeallocPNecko(PNeckoChild*);
  
 +protected:
-+    virtual PObjectWrapperLiaisonChild* AllocPObjectWrapperLiaison(const JSRuntimeOwner&);
-+    virtual bool DeallocPObjectWrapperLiaison(PObjectWrapperLiaisonChild* actor);
++    virtual PContextWrapperChild* AllocPContextWrapper(const JSRuntimeOwner&);
++    virtual bool DeallocPContextWrapper(PContextWrapperChild* actor);
 +    
  private:
      NS_OVERRIDE
@@ -398,14 +398,14 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
      return true;
  }
  
-+PObjectWrapperLiaisonParent*
-+ContentProcessParent::AllocPObjectWrapperLiaison(const JSRuntimeOwner&)
++PContextWrapperParent*
++ContentProcessParent::AllocPContextWrapper(const JSRuntimeOwner&)
 +{
-+    return new ObjectWrapperLiaisonParent();
++    return new ContextWrapperParent();
 +}
 +
 +bool
-+ContentProcessParent::DeallocPObjectWrapperLiaison(PObjectWrapperLiaisonParent* actor)
++ContentProcessParent::DeallocPContextWrapper(PContextWrapperParent* actor)
 +{
 +    delete actor;
 +    return true;
@@ -413,7 +413,7 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 +
 +bool
 +ContentProcessParent::
-+RecvPObjectWrapperLiaisonConstructor(PObjectWrapperLiaisonParent* actor,
++RecvPContextWrapperConstructor(PContextWrapperParent* actor,
 +                                     const JSRuntimeOwner& jsro)
 +{
 +    // TODO This method can go away once IPDL supports multiple managers,
@@ -426,14 +426,14 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 +        {
 +            const TabParent* tp =
 +                static_cast<const TabParent*>(jsro.get_PIFrameEmbeddingParent());
-+            const_cast<TabParent*>(tp)->SetObjectWrapperLiaison(actor);
++            const_cast<TabParent*>(tp)->SetContextWrapper(actor);
 +            return true;
 +        }
 +    case JSRuntimeOwner::TPTestShellParent:
 +        {
 +            const TestShellParent* tsp =
 +                static_cast<const TestShellParent*>(jsro.get_PTestShellParent());
-+            const_cast<TestShellParent*>(tsp)->SetObjectWrapperLiaison(actor);
++            const_cast<TestShellParent*>(tsp)->SetContextWrapper(actor);
 +            return true;
 +        }
 +    default:
@@ -474,9 +474,9 @@ diff --git a/dom/ipc/ContentProcessParent.h b/dom/ipc/ContentProcessParent.h
      virtual PNeckoParent* AllocPNecko();
      virtual bool DeallocPNecko(PNeckoParent* necko);
  
-+    virtual PObjectWrapperLiaisonParent* AllocPObjectWrapperLiaison(const JSRuntimeOwner&);
-+    virtual bool DeallocPObjectWrapperLiaison(PObjectWrapperLiaisonParent* actor);
-+    virtual bool RecvPObjectWrapperLiaisonConstructor(PObjectWrapperLiaisonParent* actor,
++    virtual PContextWrapperParent* AllocPContextWrapper(const JSRuntimeOwner&);
++    virtual bool DeallocPContextWrapper(PContextWrapperParent* actor);
++    virtual bool RecvPContextWrapperConstructor(PContextWrapperParent* actor,
 +                                                      const JSRuntimeOwner& jsro);
      mozilla::Monitor mMonitor;
  
@@ -498,30 +498,30 @@ diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
  include protocol "PIFrameEmbedding.ipdl";
  include protocol "PTestShell.ipdl";
  include protocol "PNecko.ipdl";
-+include protocol "PObjectWrapperLiaison.ipdl";
++include protocol "PContextWrapper.ipdl";
  
  include "mozilla/TabTypes.h";
  
  namespace mozilla {
  namespace dom {
  
-+/* Although PContentProcess manages PObjectWrapperLiaison,
-+ * PObjectWrapperLiaison instances are always created by (or on behalf of)
++/* Although PContentProcess manages PContextWrapper,
++ * PContextWrapper instances are always created by (or on behalf of)
 + * a particular PIFrameEmbedding or PTestShell, since each instance of these
-+ * subprotocols has its own JSRuntime (and distinct PObjectWrapperLiaisons
++ * subprotocols has its own JSRuntime (and distinct PContextWrappers
 + * are needed for distinct JSRuntimes).
 + *
 + * It would be more natural to allow both PIFrameEmbedding and PTestShell
-+ * to manage PObjectWrapperLiaison, but as far as I can tell IPDL
++ * to manage PContextWrapper, but as far as I can tell IPDL
 + * protocols cannot have multiple managers.
 + *
-+ * So that we can later determine which PObjectWrapperLiaisonParent is
++ * So that we can later determine which PContextWrapperParent is
 + * associated with a given PIFrameEmbeddingParent or PTestShellParent, the
-+ * PObjectWrapperLiaison constructor message must convey to the
++ * PContextWrapper constructor message must convey to the
 + * PContentProcessParent which PIFrameEmbeddingChild or PTestShellChild
-+ * sent the PObjectWrapperLiaison constructor message.
++ * sent the PContextWrapper constructor message.
 + *
-+ * We might like to have two separate PObjectWrapperLiaison constructors,
++ * We might like to have two separate PContextWrapper constructors,
 + * one accepting a PIFrameEmbeddingChild and the other a PTestShell.
 + * Alas, IPDL constructors can't be overloaded, so we'll settle for a
 + * single constructor that accepts a union-type parameter.
@@ -536,7 +536,7 @@ diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
      manages PIFrameEmbedding;
      manages PTestShell;
      manages PNecko;
-+    manages PObjectWrapperLiaison;
++    manages PContextWrapper;
  
  child:
      PIFrameEmbedding();
@@ -546,7 +546,7 @@ diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
  parent:
      PNecko();
 +
-+    PObjectWrapperLiaison(JSRuntimeOwner jsro);
++    PContextWrapper(JSRuntimeOwner jsro);
 +
  };
  
@@ -565,7 +565,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  #include "nsIPrivateDOMEvent.h"
  
 +#include "mozilla/dom/PContentProcessChild.h"
-+#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
++#include "mozilla/jsipc/ContextWrapperChild.h"
 +
 +#include "nsIDocument.h"
 +#include "nsIScriptGlobalObject.h"
@@ -590,7 +590,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
          NS_WARNING("mWebNav->LoadURI failed. Eating exception, what else can I do?");
      }
 +
-+    CreateObjectWrapperLiaisonAndSetGlobalObject();
++    CreateContextWrapperAndSetGlobalObject();
 +    
      return true;
  }
@@ -627,17 +627,17 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +}
 +
 +void
-+TabChild::CreateObjectWrapperLiaisonAndSetGlobalObject()
++TabChild::CreateContextWrapperAndSetGlobalObject()
 +{
 +    JSContext* cx;
 +    PContentProcessChild* manager;
-+    mozilla::jsipc::ObjectWrapperLiaisonChild* owlc;
++    mozilla::jsipc::ContextWrapperChild* cwc;
 +
 +    if ((cx = GetJSContext(mWebNav)) &&
 +        (manager = Manager()) &&
-+        (owlc = new mozilla::jsipc::ObjectWrapperLiaisonChild(cx)))
++        (cwc = new mozilla::jsipc::ContextWrapperChild(cx)))
 +        manager
-+            ->SendPObjectWrapperLiaisonConstructor(owlc, this)
++            ->SendPContextWrapperConstructor(cwc, this)
 +            ->SendPObjectWrapperConstructor(true);
 +}
 +
@@ -661,7 +661,7 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
  
  private:
      nsCOMPtr<nsIWebNavigation> mWebNav;
-+    void CreateObjectWrapperLiaisonAndSetGlobalObject();
++    void CreateContextWrapperAndSetGlobalObject();
  
      DISALLOW_EVIL_CONSTRUCTORS(TabChild);
  };
@@ -682,7 +682,7 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
  namespace dom {
  
  TabParent::TabParent()
-+  : mObjectWrapperLiaison(nsnull)
++  : mContextWrapper(nsnull)
  {
  }
  
@@ -703,7 +703,7 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
  #define mozilla_tabs_TabParent_h
  
  #include "mozilla/dom/PIFrameEmbeddingParent.h"
-+#include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
++#include "mozilla/jsipc/ContextWrapperParent.h"
  
  #include "mozilla/ipc/GeckoChildProcessHost.h"
  
@@ -735,19 +735,19 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
              const bool& flush);
      virtual bool DeallocPDocumentRenderer(PDocumentRendererParent* actor);
 +
-+    void SetObjectWrapperLiaison(PObjectWrapperLiaisonParent* powlp) {
-+        mObjectWrapperLiaison = static_cast<ObjectWrapperLiaisonParent*>(powlp);
++    void SetContextWrapper(PContextWrapperParent* pcwp) {
++        mContextWrapper = static_cast<ContextWrapperParent*>(pcwp);
 +    }
 +
 +    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
-+        return (mObjectWrapperLiaison &&
-+                mObjectWrapperLiaison->GetGlobalJSObject(cx, globalp));
++        return (mContextWrapper &&
++                mContextWrapper->GetGlobalJSObject(cx, globalp));
 +    }
 +
  protected:
      nsIDOMElement* mFrameElement;
      nsCOMPtr<nsIBrowserDOMWindow> mBrowserDOMWindow;
-+    ObjectWrapperLiaisonParent* mObjectWrapperLiaison;
++    ContextWrapperParent* mContextWrapper;
  };
  
  } // namespace dom
@@ -810,7 +810,7 @@ diff --git a/ipc/testshell/TestShellParent.h b/ipc/testshell/TestShellParent.h
  namespace mozilla {
 +
 +namespace jsipc {
-+class PObjectWrapperLiaisonParent;
++class PContextWrapperParent;
 +}
 +
  namespace ipc {
@@ -832,15 +832,15 @@ diff --git a/ipc/testshell/TestShellParent.h b/ipc/testshell/TestShellParent.h
    bool
    CommandDone(TestShellCommandParent* aActor, const nsString& aResponse);
 +
-+  void SetObjectWrapperLiaison(PObjectWrapperLiaisonParent* powlp) {
-+    mObjectWrapperLiaison = powlp;
++  void SetContextWrapper(PContextWrapperParent* pcwp) {
++    mContextWrapper = pcwp;
 +  }
-+  PObjectWrapperLiaisonParent* GetObjectWrapperLiaison() const {
-+    return mObjectWrapperLiaison;
++  PContextWrapperParent* GetContextWrapper() const {
++    return mContextWrapper;
 +  }
 +
 +private:
-+  PObjectWrapperLiaisonParent* mObjectWrapperLiaison;
++  PContextWrapperParent* mContextWrapper;
  };
  
  
@@ -890,8 +890,8 @@ new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/CPOWTypes.h
 @@ -0,0 +1,64 @@
-+#ifndef mozilla_jsipc_ObjectWrapperLiaisonTypes_h__
-+#define mozilla_jsipc_ObjectWrapperLiaisonTypes_h__
++#ifndef mozilla_jsipc_ContextWrapperTypes_h__
++#define mozilla_jsipc_ContextWrapperTypes_h__
 +
 +#include "jsapi.h"
 +#include "jspubtd.h"
@@ -954,6 +954,152 @@ new file mode 100644
 +#endif
 +
 +#endif
+diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/ContextWrapperChild.h
+@@ -0,0 +1,70 @@
++#ifndef mozilla_jsipc_ContextWrapperChild_h__
++#define mozilla_jsipc_ContextWrapperChild_h__
++
++#include "mozilla/jsipc/PContextWrapperChild.h"
++#include "mozilla/jsipc/ObjectWrapperChild.h"
++
++#include "jsapi.h"
++#include "nsClassHashtable.h"
++#include "nsHashKeys.h"
++
++namespace mozilla {
++namespace jsipc {
++
++class ContextWrapperChild
++    : public PContextWrapperChild
++{
++public:
++
++    ContextWrapperChild(JSContext* cx)
++        : mContext(cx)
++    {
++        mResidentObjectTable.Init();
++    }
++
++    JSContext* GetContext() { return mContext; }
++
++    PObjectWrapperChild* GetOrCreateWrapper(JSObject* obj,
++                                            bool makeGlobal = false)
++    {
++        if (!obj) // Don't wrap nothin'!
++            return NULL;
++        PObjectWrapperChild* wrapper;
++        while (!mResidentObjectTable.Get(obj, &wrapper))
++            mResidentObjectTable.Put(obj, SendPObjectWrapperConstructor(AllocPObjectWrapper(obj),
++                                                                        makeGlobal));
++        return wrapper;
++    }
++    
++    PObjectWrapperChild* GetOrCreateGlobalWrapper() {
++        return GetOrCreateWrapper(JS_GetGlobalObject(mContext), true);
++    }
++    
++protected:
++
++    PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
++        return new ObjectWrapperChild(mContext, obj);
++    }
++    
++    PObjectWrapperChild* AllocPObjectWrapper(const bool&) {
++        return AllocPObjectWrapper(JS_GetGlobalObject(mContext));
++    }
++
++    bool DeallocPObjectWrapper(PObjectWrapperChild* actor) {
++        ObjectWrapperChild* owc = static_cast<ObjectWrapperChild*>(actor);
++        mResidentObjectTable.Remove(owc->GetJSObject());
++        return true;
++    }
++
++private:
++    
++    JSContext* const mContext;
++
++    nsClassHashtable<nsPtrHashKey<JSObject>,
++                     PObjectWrapperChild> mResidentObjectTable;
++
++};
++
++}}
++
++#endif
+diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent.h
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/ContextWrapperParent.h
+@@ -0,0 +1,66 @@
++#ifndef mozilla_jsipc_ContextWrapperParent_h__
++#define mozilla_jsipc_ContextWrapperParent_h__
++
++#include "mozilla/jsipc/PContextWrapperParent.h"
++#include "mozilla/jsipc/ObjectWrapperParent.h"
++
++#include "jsapi.h"
++#include "nsAutoJSValHolder.h"
++
++namespace mozilla {
++namespace jsipc {
++    
++class ContextWrapperParent
++    : public PContextWrapperParent
++{
++public:
++
++    ContextWrapperParent() : mGlobal(NULL) {}
++
++    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
++        if (!mGlobal)
++            return false;
++        mGlobalHolder.Hold(cx);
++        mGlobalHolder = *globalp = mGlobal->GetJSObject(cx);
++        return true;
++    }
++
++    ObjectWrapperParent* GetGlobalObjectWrapper() const {
++        return mGlobal;
++    }
++
++private:
++
++    ObjectWrapperParent* mGlobal;
++    nsAutoJSValHolder mGlobalHolder;
++
++    PObjectWrapperParent* AllocPObjectWrapper(const bool&) {
++        return new ObjectWrapperParent();
++    }
++
++    bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
++                                       const bool& makeGlobal)
++    {
++        if (makeGlobal) {
++            mGlobalHolder.Release();
++            mGlobal = static_cast<ObjectWrapperParent*>(actor);
++        }
++        return true;
++    }
++
++    bool DeallocPObjectWrapper(PObjectWrapperParent* actor)
++    {
++        if (mGlobal &&
++            mGlobal == static_cast<ObjectWrapperParent*>(actor)) {
++            mGlobalHolder.Release();
++            mGlobal = NULL;
++        }
++        delete actor;
++        return true;
++    }
++
++};
++
++}}
++
++#endif
 diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
 new file mode 100644
 --- /dev/null
@@ -976,8 +1122,8 @@ new file mode 100644
 +
 +EXPORTS_mozilla/jsipc = \
 +  CPOWTypes.h \
-+  ObjectWrapperLiaisonChild.h \
-+  ObjectWrapperLiaisonParent.h \
++  ContextWrapperChild.h \
++  ContextWrapperParent.h \
 +  ObjectWrapperParent.h \
 +  ObjectWrapperChild.h \
 +  $(NULL)
@@ -997,7 +1143,7 @@ new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
 @@ -0,0 +1,500 @@
-+#include "mozilla/jsipc/ObjectWrapperLiaisonChild.h"
++#include "mozilla/jsipc/ContextWrapperChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
 +
@@ -1130,11 +1276,11 @@ new file mode 100644
 +    }
 +}
 +    
-+ObjectWrapperLiaisonChild*
++ContextWrapperChild*
 +ObjectWrapperChild::Manager()
 +{
-+    PObjectWrapperLiaisonChild* powlc = PObjectWrapperChild::Manager();
-+    return static_cast<ObjectWrapperLiaisonChild*>(powlc);
++    PContextWrapperChild* pcwc = PObjectWrapperChild::Manager();
++    return static_cast<ContextWrapperChild*>(pcwc);
 +}
 +
 +static bool
@@ -1512,7 +1658,7 @@ new file mode 100644
 +namespace mozilla {
 +namespace jsipc {
 +
-+class ObjectWrapperLiaisonChild;
++class ContextWrapperChild;
 +  
 +class ObjectWrapperChild
 +    : public PObjectWrapperChild
@@ -1538,7 +1684,7 @@ new file mode 100644
 +    static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
 +                                     jsval* to);
 +
-+    ObjectWrapperLiaisonChild* Manager();
++    ContextWrapperChild* Manager();
 +
 +protected:
 +
@@ -1585,159 +1731,13 @@ new file mode 100644
 +}}
 +  
 +#endif
-diff --git a/js/src/ipc/ObjectWrapperLiaisonChild.h b/js/src/ipc/ObjectWrapperLiaisonChild.h
-new file mode 100644
---- /dev/null
-+++ b/js/src/ipc/ObjectWrapperLiaisonChild.h
-@@ -0,0 +1,70 @@
-+#ifndef mozilla_jsipc_ObjectWrapperLiaisonChild_h__
-+#define mozilla_jsipc_ObjectWrapperLiaisonChild_h__
-+
-+#include "mozilla/jsipc/PObjectWrapperLiaisonChild.h"
-+#include "mozilla/jsipc/ObjectWrapperChild.h"
-+
-+#include "jsapi.h"
-+#include "nsClassHashtable.h"
-+#include "nsHashKeys.h"
-+
-+namespace mozilla {
-+namespace jsipc {
-+
-+class ObjectWrapperLiaisonChild
-+    : public PObjectWrapperLiaisonChild
-+{
-+public:
-+
-+    ObjectWrapperLiaisonChild(JSContext* cx)
-+        : mContext(cx)
-+    {
-+        mResidentObjectTable.Init();
-+    }
-+
-+    JSContext* GetContext() { return mContext; }
-+
-+    PObjectWrapperChild* GetOrCreateWrapper(JSObject* obj,
-+                                            bool makeGlobal = false)
-+    {
-+        if (!obj) // Don't wrap nothin'!
-+            return NULL;
-+        PObjectWrapperChild* wrapper;
-+        while (!mResidentObjectTable.Get(obj, &wrapper))
-+            mResidentObjectTable.Put(obj, SendPObjectWrapperConstructor(AllocPObjectWrapper(obj),
-+                                                                        makeGlobal));
-+        return wrapper;
-+    }
-+    
-+    PObjectWrapperChild* GetOrCreateGlobalWrapper() {
-+        return GetOrCreateWrapper(JS_GetGlobalObject(mContext), true);
-+    }
-+    
-+protected:
-+
-+    PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
-+        return new ObjectWrapperChild(mContext, obj);
-+    }
-+    
-+    PObjectWrapperChild* AllocPObjectWrapper(const bool&) {
-+        return AllocPObjectWrapper(JS_GetGlobalObject(mContext));
-+    }
-+
-+    bool DeallocPObjectWrapper(PObjectWrapperChild* actor) {
-+        ObjectWrapperChild* owc = static_cast<ObjectWrapperChild*>(actor);
-+        mResidentObjectTable.Remove(owc->GetJSObject());
-+        return true;
-+    }
-+
-+private:
-+    
-+    JSContext* const mContext;
-+
-+    nsClassHashtable<nsPtrHashKey<JSObject>,
-+                     PObjectWrapperChild> mResidentObjectTable;
-+
-+};
-+
-+}}
-+
-+#endif
-diff --git a/js/src/ipc/ObjectWrapperLiaisonParent.h b/js/src/ipc/ObjectWrapperLiaisonParent.h
-new file mode 100644
---- /dev/null
-+++ b/js/src/ipc/ObjectWrapperLiaisonParent.h
-@@ -0,0 +1,66 @@
-+#ifndef mozilla_jsipc_ObjectWrapperLiaisonParent_h__
-+#define mozilla_jsipc_ObjectWrapperLiaisonParent_h__
-+
-+#include "mozilla/jsipc/PObjectWrapperLiaisonParent.h"
-+#include "mozilla/jsipc/ObjectWrapperParent.h"
-+
-+#include "jsapi.h"
-+#include "nsAutoJSValHolder.h"
-+
-+namespace mozilla {
-+namespace jsipc {
-+    
-+class ObjectWrapperLiaisonParent
-+    : public PObjectWrapperLiaisonParent
-+{
-+public:
-+
-+    ObjectWrapperLiaisonParent() : mGlobal(NULL) {}
-+
-+    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
-+        if (!mGlobal)
-+            return false;
-+        mGlobalHolder.Hold(cx);
-+        mGlobalHolder = *globalp = mGlobal->GetJSObject(cx);
-+        return true;
-+    }
-+
-+    ObjectWrapperParent* GetGlobalObjectWrapper() const {
-+        return mGlobal;
-+    }
-+
-+private:
-+
-+    ObjectWrapperParent* mGlobal;
-+    nsAutoJSValHolder mGlobalHolder;
-+
-+    PObjectWrapperParent* AllocPObjectWrapper(const bool&) {
-+        return new ObjectWrapperParent();
-+    }
-+
-+    bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
-+                                       const bool& makeGlobal)
-+    {
-+        if (makeGlobal) {
-+            mGlobalHolder.Release();
-+            mGlobal = static_cast<ObjectWrapperParent*>(actor);
-+        }
-+        return true;
-+    }
-+
-+    bool DeallocPObjectWrapper(PObjectWrapperParent* actor)
-+    {
-+        if (mGlobal &&
-+            mGlobal == static_cast<ObjectWrapperParent*>(actor)) {
-+            mGlobalHolder.Release();
-+            mGlobal = NULL;
-+        }
-+        delete actor;
-+        return true;
-+    }
-+
-+};
-+
-+}}
-+
-+#endif
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
 @@ -0,0 +1,605 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
-+#include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
++#include "mozilla/jsipc/ContextWrapperParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
 +
 +#include "jsobj.h"
@@ -2248,8 +2248,8 @@ new file mode 100644
 +    if (!receiver) {
 +        // Substitute child global for parent global object.
 +        // TODO First make sure we're really replacing the global object?
-+        ObjectWrapperLiaisonParent* manager =
-+            static_cast<ObjectWrapperLiaisonParent*>(function->Manager());
++        ContextWrapperParent* manager =
++            static_cast<ContextWrapperParent*>(function->Manager());
 +        receiver = manager->GetGlobalObjectWrapper();
 +    }
 +
@@ -2445,12 +2445,33 @@ new file mode 100644
 +}}
 +  
 +#endif
+diff --git a/js/src/ipc/PContextWrapper.ipdl b/js/src/ipc/PContextWrapper.ipdl
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/PContextWrapper.ipdl
+@@ -0,0 +1,16 @@
++include protocol "PContentProcess.ipdl";
++include protocol "PObjectWrapper.ipdl";
++
++namespace mozilla {
++namespace jsipc {
++
++rpc protocol PContextWrapper
++{
++    manager PContentProcess;
++    manages PObjectWrapper;
++parent:
++    __delete__();
++    sync PObjectWrapper(bool makeGlobal);
++};
++
++}}
 diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
 @@ -0,0 +1,84 @@
-+include protocol "PObjectWrapperLiaison.ipdl";
++include protocol "PContextWrapper.ipdl";
 +
 +include "mozilla/jsipc/CPOWTypes.h";
 +
@@ -2475,7 +2496,7 @@ new file mode 100644
 +
 +rpc protocol PObjectWrapper
 +{
-+    manager PObjectWrapperLiaison;
++    manager PContextWrapper;
 +
 +child:
 +    __delete__(); // unroot
@@ -2534,34 +2555,13 @@ new file mode 100644
 +};
 +
 +}}
-diff --git a/js/src/ipc/PObjectWrapperLiaison.ipdl b/js/src/ipc/PObjectWrapperLiaison.ipdl
-new file mode 100644
---- /dev/null
-+++ b/js/src/ipc/PObjectWrapperLiaison.ipdl
-@@ -0,0 +1,16 @@
-+include protocol "PContentProcess.ipdl";
-+include protocol "PObjectWrapper.ipdl";
-+
-+namespace mozilla {
-+namespace jsipc {
-+
-+rpc protocol PObjectWrapperLiaison
-+{
-+    manager PContentProcess;
-+    manages PObjectWrapper;
-+parent:
-+    __delete__();
-+    sync PObjectWrapper(bool makeGlobal);
-+};
-+
-+}}
 diff --git a/js/src/ipc/ipdl.mk b/js/src/ipc/ipdl.mk
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ipdl.mk
 @@ -0,0 +1,4 @@
 +IPDLSRCS = \
-+  PObjectWrapperLiaison.ipdl \
++  PContextWrapper.ipdl \
 +  PObjectWrapper.ipdl \
 +  $(NULL)
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
@@ -2714,7 +2714,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  #include "mozilla/dom/ContentProcessParent.h"
  #include "mozilla/dom/ContentProcessChild.h"
  
-+#include "mozilla/jsipc/ObjectWrapperLiaisonParent.h"
++#include "mozilla/jsipc/ContextWrapperParent.h"
 +
  #include "mozilla/ipc/TestShellParent.h"
  #include "mozilla/ipc/XPCShellEnvironment.h"
@@ -2734,8 +2734,8 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  using mozilla::dom::ContentProcessParent;
  using mozilla::dom::ContentProcessChild;
 +
-+using mozilla::jsipc::PObjectWrapperLiaisonParent;
-+using mozilla::jsipc::ObjectWrapperLiaisonParent;
++using mozilla::jsipc::PContextWrapperParent;
++using mozilla::jsipc::ContextWrapperParent;
 +
  using mozilla::ipc::TestShellParent;
  using mozilla::ipc::TestShellCommandParent;
@@ -2805,11 +2805,11 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
 +    TestShellParent* tsp = GetOrCreateTestShellParent();
 +    NS_ENSURE_TRUE(tsp, false);
 +
-+    PObjectWrapperLiaisonParent* powlp = tsp->GetObjectWrapperLiaison();
-+    ObjectWrapperLiaisonParent* owlp =
-+        static_cast<ObjectWrapperLiaisonParent*>(powlp);
++    PContextWrapperParent* pcwp = tsp->GetContextWrapper();
++    ContextWrapperParent* cwp =
++        static_cast<ContextWrapperParent*>(pcwp);
 +    
-+    return owlp->GetGlobalJSObject(aCx, aGlobalP);
++    return cwp->GetGlobalJSObject(aCx, aGlobalP);
 +}
 +
 +bool
