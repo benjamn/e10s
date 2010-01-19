@@ -1,7 +1,7 @@
 diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 --- a/dom/ipc/TabChild.cpp
 +++ b/dom/ipc/TabChild.cpp
-@@ -319,16 +319,17 @@ TabChild::destroyWidget()
+@@ -319,16 +319,18 @@ TabChild::destroyWidget()
      if (baseWindow)
          baseWindow->Destroy();
  
@@ -11,6 +11,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  TabChild::~TabChild()
  {
 +    // TODO Destroy our PContextWrapperChild, too!
++    // TODONT Just wait for cjones to address bug 540111.
      destroyWidget();
      nsCOMPtr<nsIWebBrowser> webBrowser = do_QueryInterface(mWebNav);
      if (webBrowser) {
@@ -19,6 +20,105 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  }
  
  bool
+diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
+--- a/js/src/ipc/ContextWrapperChild.h
++++ b/js/src/ipc/ContextWrapperChild.h
+@@ -37,16 +37,26 @@ public:
+     }
+     
+     PObjectWrapperChild* GetOrCreateGlobalWrapper() {
+         return GetOrCreateWrapper(JS_GetGlobalObject(mContext), true);
+     }
+     
+ protected:
+ 
++    bool AnswerBeginRequest() {
++        JS_BeginRequest(mContext);
++        return true;
++    }
++
++    bool AnswerEndRequest() {
++        JS_EndRequest(mContext);
++        return true;
++    }
++
+     PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
+         return new ObjectWrapperChild(mContext, obj);
+     }
+     
+     PObjectWrapperChild* AllocPObjectWrapper(const bool&) {
+         return AllocPObjectWrapper(JS_GetGlobalObject(mContext));
+     }
+ 
+diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent.h
+--- a/js/src/ipc/ContextWrapperParent.h
++++ b/js/src/ipc/ContextWrapperParent.h
+@@ -1,43 +1,64 @@
+ #ifndef mozilla_jsipc_ContextWrapperParent_h__
+ #define mozilla_jsipc_ContextWrapperParent_h__
+ 
+ #include "mozilla/jsipc/PContextWrapperParent.h"
+ #include "mozilla/jsipc/ObjectWrapperParent.h"
++#include "mozilla/jsipc/CPOWTypes.h"
+ 
+ #include "jsapi.h"
+ #include "nsAutoJSValHolder.h"
+ 
+ namespace mozilla {
+ namespace jsipc {
+     
+ class ContextWrapperParent
+     : public PContextWrapperParent
+ {
+ public:
+ 
+-    ContextWrapperParent() : mGlobal(NULL) {}
++    ContextWrapperParent()
++        : mGlobal(NULL)
++        , mRequestDepth(0)
++    {}
+ 
+     bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
+         if (!mGlobal)
+             return false;
+         mGlobalHolder.Hold(cx);
+         mGlobalHolder = *globalp = mGlobal->GetJSObject(cx);
+         return true;
+     }
+ 
+     ObjectWrapperParent* GetGlobalObjectWrapper() const {
+         return mGlobal;
+     }
+ 
++    bool CallBeginRequest() {
++        CPOW_LOG(("Calling BeginRequest (depth: %d -> %d)...",
++                  mRequestDepth, mRequestDepth + 1));
++        return (mRequestDepth++ > 0 ||
++                PContextWrapperParent::CallBeginRequest());
++    }
++
++    bool CallEndRequest() {
++        CPOW_LOG(("Calling EndRequest (depth: %d -> %d)...",
++                  mRequestDepth, mRequestDepth - 1));
++        NS_ASSERTION(mRequestDepth > 0,
++                     "Unbalanced ObjectWrapperParent::CallEndRequest");
++        return (--mRequestDepth > 0 ||
++                PContextWrapperParent::CallEndRequest());
++    }
++
+ private:
+ 
+     ObjectWrapperParent* mGlobal;
+     nsAutoJSValHolder mGlobalHolder;
++    int mRequestDepth;
+ 
+     PObjectWrapperParent* AllocPObjectWrapper(const bool&) {
+         return new ObjectWrapperParent();
+     }
+ 
+     bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
+                                        const bool& makeGlobal)
+     {
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
@@ -239,105 +339,6 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  }
  
  }}
-diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
---- a/js/src/ipc/ContextWrapperChild.h
-+++ b/js/src/ipc/ContextWrapperChild.h
-@@ -37,16 +37,26 @@ public:
-     }
-     
-     PObjectWrapperChild* GetOrCreateGlobalWrapper() {
-         return GetOrCreateWrapper(JS_GetGlobalObject(mContext), true);
-     }
-     
- protected:
- 
-+    bool AnswerBeginRequest() {
-+        JS_BeginRequest(mContext);
-+        return true;
-+    }
-+
-+    bool AnswerEndRequest() {
-+        JS_EndRequest(mContext);
-+        return true;
-+    }
-+
-     PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
-         return new ObjectWrapperChild(mContext, obj);
-     }
-     
-     PObjectWrapperChild* AllocPObjectWrapper(const bool&) {
-         return AllocPObjectWrapper(JS_GetGlobalObject(mContext));
-     }
- 
-diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent.h
---- a/js/src/ipc/ContextWrapperParent.h
-+++ b/js/src/ipc/ContextWrapperParent.h
-@@ -1,43 +1,64 @@
- #ifndef mozilla_jsipc_ContextWrapperParent_h__
- #define mozilla_jsipc_ContextWrapperParent_h__
- 
- #include "mozilla/jsipc/PContextWrapperParent.h"
- #include "mozilla/jsipc/ObjectWrapperParent.h"
-+#include "mozilla/jsipc/CPOWTypes.h"
- 
- #include "jsapi.h"
- #include "nsAutoJSValHolder.h"
- 
- namespace mozilla {
- namespace jsipc {
-     
- class ContextWrapperParent
-     : public PContextWrapperParent
- {
- public:
- 
--    ContextWrapperParent() : mGlobal(NULL) {}
-+    ContextWrapperParent()
-+        : mGlobal(NULL)
-+        , mRequestDepth(0)
-+    {}
- 
-     bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
-         if (!mGlobal)
-             return false;
-         mGlobalHolder.Hold(cx);
-         mGlobalHolder = *globalp = mGlobal->GetJSObject(cx);
-         return true;
-     }
- 
-     ObjectWrapperParent* GetGlobalObjectWrapper() const {
-         return mGlobal;
-     }
- 
-+    bool CallBeginRequest() {
-+        CPOW_LOG(("Calling BeginRequest (depth: %d -> %d)...",
-+                  mRequestDepth, mRequestDepth + 1));
-+        return (mRequestDepth++ > 0 ||
-+                PContextWrapperParent::CallBeginRequest());
-+    }
-+
-+    bool CallEndRequest() {
-+        CPOW_LOG(("Calling EndRequest (depth: %d -> %d)...",
-+                  mRequestDepth, mRequestDepth - 1));
-+        NS_ASSERTION(mRequestDepth > 0,
-+                     "Unbalanced ObjectWrapperParent::CallEndRequest");
-+        return (--mRequestDepth > 0 ||
-+                PContextWrapperParent::CallEndRequest());
-+    }
-+
- private:
- 
-     ObjectWrapperParent* mGlobal;
-     nsAutoJSValHolder mGlobalHolder;
-+    int mRequestDepth;
- 
-     PObjectWrapperParent* AllocPObjectWrapper(const bool&) {
-         return new ObjectWrapperParent();
-     }
- 
-     bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
-                                        const bool& makeGlobal)
-     {
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp

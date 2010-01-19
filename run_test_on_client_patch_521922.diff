@@ -113,7 +113,7 @@ new file mode 100644
 diff --git a/testing/xpcshell/head.js b/testing/xpcshell/head.js
 --- a/testing/xpcshell/head.js
 +++ b/testing/xpcshell/head.js
-@@ -402,8 +402,72 @@ function do_get_profile() {
+@@ -403,8 +403,72 @@ function do_get_profile() {
        }
        throw Components.results.NS_ERROR_NO_INTERFACE;
      }
@@ -189,43 +189,45 @@ diff --git a/testing/xpcshell/head.js b/testing/xpcshell/head.js
 diff --git a/testing/xpcshell/runxpcshelltests.py b/testing/xpcshell/runxpcshelltests.py
 --- a/testing/xpcshell/runxpcshelltests.py
 +++ b/testing/xpcshell/runxpcshelltests.py
-@@ -97,16 +97,17 @@ def runTests(xpcshell, xrePath=None, sym
-     # nothing to test!
-     print >>sys.stderr, "Error: No test dirs or test manifest specified!"
-     return False
+@@ -101,16 +101,17 @@ class XPCShellTests(object):
+       # nothing to test!
+       print >>sys.stderr, "Error: No test dirs or test manifest specified!"
+       return False
  
-   passCount = 0
-   failCount = 0
+     passCount = 0
+     failCount = 0
  
-   testharnessdir = os.path.dirname(os.path.abspath(__file__))
-+  headJSPath = testharnessdir.replace("\\", "/") + "/head.js"
-   xpcshell = os.path.abspath(xpcshell)
-   # we assume that httpd.js lives in components/ relative to xpcshell
-   httpdJSPath = os.path.join(os.path.dirname(xpcshell), "components", "httpd.js").replace("\\", "/");
+     testharnessdir = os.path.dirname(os.path.abspath(__file__))
++    headJSPath = testharnessdir.replace("\\", "/") + "/head.js"
+     xpcshell = os.path.abspath(xpcshell)
+     # we assume that httpd.js lives in components/ relative to xpcshell
+     httpdJSPath = os.path.join(os.path.dirname(xpcshell), "components", "httpd.js").replace("\\", "/");
  
-   env = dict(os.environ)
-   # Make assertions fatal
-   env["XPCOM_DEBUG_BREAK"] = "stack-and-abort"
-   # Don't launch the crash reporter client
-@@ -142,18 +143,21 @@ def runTests(xpcshell, xrePath=None, sym
-     else:
-       if sys.platform == 'os2emx':
-         pStdout = None
+     env = dict(os.environ)
+     # Make assertions fatal
+     env["XPCOM_DEBUG_BREAK"] = "stack-and-abort"
+     # Don't launch the crash reporter client
+@@ -146,19 +147,22 @@ class XPCShellTests(object):
        else:
-         pStdout = PIPE
-       pStderr = STDOUT
+         if sys.platform == 'os2emx':
+           pStdout = None
+         else:
+           pStdout = PIPE
+         pStderr = STDOUT
  
-   # <head.js> has to be loaded by xpchell: it can't load itself.
-+  # - NOTE: if you rename/add any of the constants set here, update
-+  #   do_load_child_test_harness() in head.js
-   xpcsCmd = [xpcshell, '-g', xrePath, '-j', '-s'] + \
-             ['-e', 'const _HTTPD_JS_PATH = "%s";' % httpdJSPath,
-+             '-e', 'const _HEAD_JS_PATH = "%s";' % headJSPath, 
-              '-f', os.path.join(testharnessdir, 'head.js')]
+     # <head.js> has to be loaded by xpchell: it can't load itself.
++    # - NOTE: if you rename/add any of the constants set here, update
++    #   do_load_child_test_harness() in head.js
+     xpcsCmd = [xpcshell, '-g', xrePath, '-j', '-s'] + \
+               ['-e', 'const _HTTPD_JS_PATH = "%s";' % httpdJSPath,
+-              '-f', os.path.join(testharnessdir, 'head.js')]
++               '-e', 'const _HEAD_JS_PATH = "%s";' % headJSPath, 
++               '-f', os.path.join(testharnessdir, 'head.js')]
  
-   if debuggerInfo:
-     xpcsCmd = [debuggerInfo["path"]] + debuggerInfo["args"] + xpcsCmd
+     if debuggerInfo:
+       xpcsCmd = [debuggerInfo["path"]] + debuggerInfo["args"] + xpcsCmd
  
-   # |testPath| will be the optional path only, or |None|.
-   # |singleFile| will be the optional test only, or |None|.
-   singleFile = None
+     # |testPath| will be the optional path only, or |None|.
+     # |singleFile| will be the optional test only, or |None|.
+     singleFile = None
+     if testPath:
