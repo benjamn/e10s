@@ -295,12 +295,12 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
  }
  
 +PContextWrapperChild*
-+ContentProcessChild::AllocPContextWrapper(const JSRuntimeOwner&)
++ContentProcessChild::AllocPContextWrapper(const ContextWrapperOwner&)
 +{
 +    NS_NOTREACHED("ContentProcessChild::AllocPContextWrapper does not "
 +                  "have enough information to allocate instances of "
 +                  "ContextWrapperChild (see "
-+                  "TabChild::CreateContextWrapperAndAttachGlobalObject).");
++                  "TabChild::CreateContextWrapperAndSetGlobalObject).");
 +    return NULL;
 +}
 +
@@ -356,7 +356,7 @@ diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
      virtual bool DeallocPNecko(PNeckoChild*);
  
 +protected:
-+    virtual PContextWrapperChild* AllocPContextWrapper(const JSRuntimeOwner&);
++    virtual PContextWrapperChild* AllocPContextWrapper(const ContextWrapperOwner&);
 +    virtual bool DeallocPContextWrapper(PContextWrapperChild* actor);
 +    
  private:
@@ -399,7 +399,7 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
  }
  
 +PContextWrapperParent*
-+ContentProcessParent::AllocPContextWrapper(const JSRuntimeOwner&)
++ContentProcessParent::AllocPContextWrapper(const ContextWrapperOwner&)
 +{
 +    return new ContextWrapperParent();
 +}
@@ -414,25 +414,25 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 +bool
 +ContentProcessParent::
 +RecvPContextWrapperConstructor(PContextWrapperParent* actor,
-+                                     const JSRuntimeOwner& jsro)
++                               const ContextWrapperOwner& cwo)
 +{
 +    // TODO This method can go away once IPDL supports multiple managers,
 +    // for then PObjectWrapper can be managed by PIFrameEmbeddingParent
 +    // and PTestShellParent, instead of their common parent
 +    // PContentProcess.
 +    
-+    switch (jsro.type()) {
-+    case JSRuntimeOwner::TPIFrameEmbeddingParent:
++    switch (cwo.type()) {
++    case ContextWrapperOwner::TPIFrameEmbeddingParent:
 +        {
 +            const TabParent* tp =
-+                static_cast<const TabParent*>(jsro.get_PIFrameEmbeddingParent());
++                static_cast<const TabParent*>(cwo.get_PIFrameEmbeddingParent());
 +            const_cast<TabParent*>(tp)->SetContextWrapper(actor);
 +            return true;
 +        }
-+    case JSRuntimeOwner::TPTestShellParent:
++    case ContextWrapperOwner::TPTestShellParent:
 +        {
 +            const TestShellParent* tsp =
-+                static_cast<const TestShellParent*>(jsro.get_PTestShellParent());
++                static_cast<const TestShellParent*>(cwo.get_PTestShellParent());
 +            const_cast<TestShellParent*>(tsp)->SetContextWrapper(actor);
 +            return true;
 +        }
@@ -474,10 +474,10 @@ diff --git a/dom/ipc/ContentProcessParent.h b/dom/ipc/ContentProcessParent.h
      virtual PNeckoParent* AllocPNecko();
      virtual bool DeallocPNecko(PNeckoParent* necko);
  
-+    virtual PContextWrapperParent* AllocPContextWrapper(const JSRuntimeOwner&);
++    virtual PContextWrapperParent* AllocPContextWrapper(const ContextWrapperOwner&);
 +    virtual bool DeallocPContextWrapper(PContextWrapperParent* actor);
 +    virtual bool RecvPContextWrapperConstructor(PContextWrapperParent* actor,
-+                                                      const JSRuntimeOwner& jsro);
++                                                const ContextWrapperOwner& cwo);
      mozilla::Monitor mMonitor;
  
      GeckoChildProcessHost* mSubprocess;
@@ -505,15 +505,15 @@ diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
  namespace mozilla {
  namespace dom {
  
-+/* Although PContentProcess manages PContextWrapper,
-+ * PContextWrapper instances are always created by (or on behalf of)
-+ * a particular PIFrameEmbedding or PTestShell, since each instance of these
-+ * subprotocols has its own JSRuntime (and distinct PContextWrappers
-+ * are needed for distinct JSRuntimes).
++/* Although PContentProcess manages PContextWrapper, PContextWrapper
++ * instances are always created by (or on behalf of) a particular
++ * PIFrameEmbedding or PTestShell, since each instance of these
++ * subprotocols has its own JSContext (and distinct PContextWrappers are
++ * needed for distinct JSContexts).
 + *
 + * It would be more natural to allow both PIFrameEmbedding and PTestShell
-+ * to manage PContextWrapper, but as far as I can tell IPDL
-+ * protocols cannot have multiple managers.
++ * to manage PContextWrapper, but as far as I can tell IPDL protocols
++ * cannot have multiple managers (bug 540111 may change this).
 + *
 + * So that we can later determine which PContextWrapperParent is
 + * associated with a given PIFrameEmbeddingParent or PTestShellParent, the
@@ -521,12 +521,12 @@ diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
 + * PContentProcessParent which PIFrameEmbeddingChild or PTestShellChild
 + * sent the PContextWrapper constructor message.
 + *
-+ * We might like to have two separate PContextWrapper constructors,
-+ * one accepting a PIFrameEmbeddingChild and the other a PTestShell.
-+ * Alas, IPDL constructors can't be overloaded, so we'll settle for a
-+ * single constructor that accepts a union-type parameter.
++ * We might like to have two separate PContextWrapper constructors, one
++ * accepting a PIFrameEmbeddingChild and the other a PTestShell.  Alas,
++ * IPDL constructors can't be overloaded, so we'll settle for a single
++ * constructor that accepts a union-type parameter.
 + */
-+union JSRuntimeOwner {
++union ContextWrapperOwner {
 +    PIFrameEmbedding;
 +    PTestShell;
 +};
@@ -546,7 +546,7 @@ diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
  parent:
      PNecko();
 +
-+    PContextWrapper(JSRuntimeOwner jsro);
++    PContextWrapper(ContextWrapperOwner cwo);
 +
  };
  
