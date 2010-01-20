@@ -943,13 +943,13 @@ new file mode 100644
 +// TODO Use a more standard logging mechanism.
 +#ifdef DEBUG
 +#define CPOW_LOG(PRINTF_ARGS) \
-+    PR_BEGIN_MACRO            \
++    JS_BEGIN_MACRO            \
 +    printf("CPOW | ");        \
 +    printf PRINTF_ARGS ;      \
 +    printf("\n");             \
-+    PR_END_MACRO
++    JS_END_MACRO
 +#else
-+#define CPOW_LOG(_)
++#define CPOW_LOG(_) JS_BEGIN_MACRO JS_END_MACRO
 +#endif
 +
 +#endif
