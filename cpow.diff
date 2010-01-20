@@ -275,7 +275,7 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 +    if ((env = static_cast<TestShellChild*>(actor)->GetXPCShell()) &&
 +        (cx = env->GetContext()) &&
 +        (cwc = new ContextWrapperChild(cx)))
-+        SendPContextWrapperConstructor(cwc, actor)
++        this->SendPContextWrapperConstructor(cwc, actor)
 +            ->SendPObjectWrapperConstructor(true);
 +
 +    return true;
@@ -1734,13 +1734,14 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,605 @@
+@@ -0,0 +1,608 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +#include "mozilla/jsipc/ContextWrapperParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
 +
 +#include "jsobj.h"
 +#include "jsfun.h"
++#include "jsutil.h"
 +
 +namespace mozilla {
 +namespace jsipc {
@@ -1759,6 +1760,7 @@ new file mode 100644
 +        JSContext* mContext;
 +        JSObject* mObj;
 +        uintN mOldFlags;
++        JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
 +
 +        static uintN GetFlags(JSContext* cx, JSObject* obj) {
 +            jsval v;
@@ -1774,12 +1776,13 @@ new file mode 100644
 +        }
 +    public:
 +        AutoResolveFlag(JSContext* cx,
-+                        JSObject* obj)
++                        JSObject* obj
++                        JS_GUARD_OBJECT_NOTIFIER_PARAM)
 +            : mContext(cx)
 +            , mObj(obj)
 +            , mOldFlags(SetFlags(cx, obj,
 +                                 GetFlags(cx, obj) | CPOW_FLAG_RESOLVING))
-+        {}
++        { JS_GUARD_OBJECT_NOTIFIER_INIT; }
 +        ~AutoResolveFlag() { SetFlags(mContext, mObj, mOldFlags); }
 +        static JSBool IsSet(JSContext* cx, JSObject* obj) {
 +            return GetFlags(cx, obj) & CPOW_FLAG_RESOLVING;
