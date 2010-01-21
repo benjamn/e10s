@@ -4,4 +4,4 @@ cpow.diff
 new-request-model.diff
 test-cpow.diff
 test-exceptions.diff
-operation-status.diff
+cpow-exceptions.diff
