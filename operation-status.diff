@@ -1,0 +1,959 @@
+diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
+--- a/js/src/ipc/ObjectWrapperChild.cpp
++++ b/js/src/ipc/ObjectWrapperChild.cpp
+@@ -11,47 +11,103 @@ namespace mozilla {
+ namespace jsipc {
+ 
+ namespace {
+ 
+     class AutoContextPusher {
+ 
+         JSContext* const mContext;
+         nsRefPtr<nsIThreadJSContextStack> mStack;
++        const uint32 mSavedOptions;
+ 
+         JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
+ 
+     public:
+ 
+         AutoContextPusher(JSContext* cx
+                           JS_GUARD_OBJECT_NOTIFIER_PARAM)
+             : mContext(cx)
+             , mStack(nsContentUtils::ThreadJSContextStack())
++            , mSavedOptions(JS_SetOptions(cx, (JS_GetOptions(cx) |
++                                               JSOPTION_DONT_REPORT_UNCAUGHT)))
+         {
+             JS_GUARD_OBJECT_NOTIFIER_INIT;
+             if (mStack) {
+                 nsresult rv = mStack->Push(mContext);
+                 NS_ASSERTION(NS_SUCCEEDED(rv), "Failed to push our context");
+             }
+         }
+ 
+         ~AutoContextPusher() {
+             if (mStack) {
+                 JSContext* popped;
+                 nsresult rv =
+                     nsContentUtils::ThreadJSContextStack()->Pop(&popped);
+                 NS_ASSERTION(NS_SUCCEEDED(rv) && mContext == popped,
+                              "Failed to pop our context");
+             }
++            JS_SetOptions(mContext, mSavedOptions);
++        }
++
++    };
++
++    class AutoCheckOperation {
++
++        ObjectWrapperChild* const mObjectWrapper;
++        OperationStatus* const mStatus;
++
++        JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
++
++    public:
++
++        AutoCheckOperation(ObjectWrapperChild* owc,
++                           OperationStatus* status
++                           JS_GUARD_OBJECT_NOTIFIER_PARAM)
++            : mObjectWrapper(owc)
++            , mStatus(status)
++        {
++            JS_GUARD_OBJECT_NOTIFIER_INIT;
++            if (mStatus->type() == OperationStatus::T__None)
++                *mStatus = JS_FALSE;
++        }
++
++        ~AutoCheckOperation() {
++            mObjectWrapper->CheckOperation(mStatus);
++        }
++
++        bool Ok() {
++            return (mStatus->type() == OperationStatus::TJSBool &&
++                    mStatus->get_JSBool());
+         }
+ 
+     };
+ 
+ }
+-    
++
++void
++ObjectWrapperChild::CheckOperation(OperationStatus* status)
++{
++    NS_PRECONDITION(status->type() != OperationStatus::T__None,
++                    "Checking an uninitialized operation.");
++
++    JSContext* cx = Manager()->GetContext();
++    jsval thrown;
++
++    if (JS_GetPendingException(cx, &thrown)) {
++        NS_ASSERTION(!(status->type() == OperationStatus::TJSBool &&
++                       status->get_JSBool()),
++                     "Operation succeeded but exception was thrown?");
++        JSVariant exception;
++        if (!jsval_to_JSVariant(cx, thrown, &exception))
++            exception = void_t(); // XXX Useful?
++        *status = exception;
++        JS_ClearPendingException(cx);
++    }
++}
++
+ ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
+     : mObj(obj)
+ {
+     JSAutoRequest request(cx);
+     JS_AddNamedRoot(cx, (void*)&mObj,
+                     "mozilla::jsipc::ObjectWrapperChild-rooted JSObject*");
+ }
+ 
+@@ -200,16 +256,17 @@ jsid_from_nsString(JSContext* cx, const 
+ // The general schema for ObjectWrapperChild::Answer* methods:
+ bool
+ ObjectWrapperChild::AnswerSomething(/* in-parameters */
+                                     /* out-parameters */)
+ {
+     // initialize out-parameters for failure
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
++    AutoCheckOperation aco(this, status); // if given a status out-parameter
+     // validate in-parameters, else return false
+     // successfully perform local JS operations, else return true
+     // perform out-parameter conversions, else return false
+     return true;
+ }
+ // There's an important subtlety here: though a local JS operation may
+ // fail, leaving out-parameters uninitialized, we must initialize all
+ // out-parameters when reporting success (returning true) to the IPC
+@@ -228,79 +285,77 @@ ObjectWrapperChild::AnswerAddProperty(co
+         return false;
+     
+     JS_DefinePropertyById(cx, mObj, interned_id, JSVAL_VOID, NULL, NULL, 0);
+     return true;
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerGetProperty(const nsString& id,
+-                                      JSBool* ok, JSVariant* vp)
++                                      OperationStatus* status, JSVariant* vp)
+ {
+     jsid interned_id;
+     jsval val;
+ 
+-    *ok = JS_FALSE;
+-
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
++    AutoCheckOperation aco(this, status);
+ 
+     if (!jsid_from_nsString(cx, id, &interned_id))
+         return false;
+ 
+-    *ok = JS_GetPropertyById(cx, mObj, interned_id, &val);
++    *status = JS_GetPropertyById(cx, mObj, interned_id, &val);
+ 
+     // Since we fully expect this call to jsval_to_JSVariant to return
+     // true, we can't just leave vp uninitialized when JS_GetPropertyById
+     // returns JS_FALSE.  This pitfall could be avoided in general if IPDL
+     // ensured that outparams were pre-initialized to some default value
+     // (XXXfixme cjones?).
+-    return jsval_to_JSVariant(cx, *ok ? val : JSVAL_VOID, vp);
++    return jsval_to_JSVariant(cx, aco.Ok() ? val : JSVAL_VOID, vp);
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerSetProperty(const nsString& id, const JSVariant& v,
+-                                      JSBool* ok, JSVariant* vp)
++                                      OperationStatus* status, JSVariant* vp)
+ {
+     jsid interned_id;
+     jsval val;
+ 
+-    *ok = JS_FALSE;
+     *vp = v;
+ 
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
++    AutoCheckOperation aco(this, status);
+ 
+     if (!jsid_from_nsString(cx, id, &interned_id) ||
+         !jsval_from_JSVariant(cx, v, &val))
+         return false;
+ 
+-    *ok = JS_SetPropertyById(cx, mObj, interned_id, &val);
++    *status = JS_SetPropertyById(cx, mObj, interned_id, &val);
+ 
+-    return jsval_to_JSVariant(cx, *ok ? val : JSVAL_VOID, vp);
++    return jsval_to_JSVariant(cx, aco.Ok() ? val : JSVAL_VOID, vp);
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerDelProperty(const nsString& id,
+-                                      JSBool* ok, JSVariant* vp)
++                                      OperationStatus* status, JSVariant* vp)
+ {
+     jsid interned_id;
+     jsval val;
+ 
+-    *ok = JS_FALSE;
+-
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
++    AutoCheckOperation aco(this, status);
+ 
+     if (!jsid_from_nsString(cx, id, &interned_id))
+         return false;
+ 
+-    *ok = JS_DeletePropertyById2(cx, mObj, interned_id, &val);
++    *status = JS_DeletePropertyById2(cx, mObj, interned_id, &val);
+ 
+-    return jsval_to_JSVariant(cx, *ok ? val : JSVAL_VOID, vp);
++    return jsval_to_JSVariant(cx, aco.Ok() ? val : JSVAL_VOID, vp);
+ }
+ 
+ static const PRUint32 sIdArraySlot = 0, sNextIdIndexSlot = 1;
+ static const PRUint32 sNumNewEnumerateStateSlots = 2;
+ 
+ static void
+ CPOW_NewEnumerateState_Finalize(JSContext* cx, JSObject* state)
+ {
+@@ -319,23 +374,23 @@ static const JSClass sCPOW_NewEnumerateS
+     JS_PropertyStub,  JS_PropertyStub,
+     JS_EnumerateStub, JS_ResolveStub,
+     JS_ConvertStub,   CPOW_NewEnumerateState_Finalize,
+     JSCLASS_NO_OPTIONAL_MEMBERS
+ };
+ 
+ bool
+ ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
+-                                           JSBool* ok, JSVariant* statep, int* idp)
++                                           OperationStatus* status, JSVariant* statep, int* idp)
+ {
+-    *ok = JS_FALSE;
+     *idp = 0;
+ 
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
++    AutoCheckOperation aco(this, status);
+ 
+     JSClass* clasp = const_cast<JSClass*>(&sCPOW_NewEnumerateState_JSClass);
+     JSObject* state = JS_NewObjectWithGivenProto(cx, clasp, NULL, NULL);
+     if (!state)
+         return false;
+     
+     for (JSObject* proto = mObj;
+          proto;
+@@ -349,63 +404,60 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+     }
+ 
+     JSIdArray* ids = JS_Enumerate(cx, state);
+     if (!ids)
+         return false;
+ 
+     *idp = ids->length;
+ 
+-    *ok = (JS_SetReservedSlot(cx, state, sIdArraySlot,
+-                              PRIVATE_TO_JSVAL(ids)) &&
+-           JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
+-                              JSVAL_ZERO) &&
+-           JSObject_to_JSVariant(cx, state, statep));
++    *status = (JS_SetReservedSlot(cx, state, sIdArraySlot,
++                                  PRIVATE_TO_JSVAL(ids)) &&
++               JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
++                                  JSVAL_ZERO) &&
++               JSObject_to_JSVariant(cx, state, statep));
+ 
+     return true;
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerNewEnumerateNext(const JSVariant& in_state,
+-                                           JSBool* ok, JSVariant* statep, nsString* idp)
++                                           OperationStatus* status, JSVariant* statep, nsString* idp)
+ {
+     JSObject* state;
+     jsval v;
+     JSIdArray* ids;
+     JSString* str;
+ 
+-    *ok = JS_FALSE;
+     *statep = in_state;
+     *idp = EmptyString();
+     
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
++    AutoCheckOperation aco(this, status);
+ 
+     if (!JSObject_from_JSVariant(cx, in_state, &state) ||
+         !JS_GetReservedSlot(cx, state, sIdArraySlot, &v) ||
+         !(ids = static_cast<JSIdArray*>(JSVAL_TO_PRIVATE(v))) ||
+         !JS_GetReservedSlot(cx, state, sNextIdIndexSlot, &v))
+         return false;
+ 
+     int i = JSVAL_TO_INT(v);
+     if (i >= ids->length) {
+-        *ok = JS_TRUE;
++        *status = JS_TRUE;
+         return JSObject_to_JSVariant(cx, NULL, statep);
+     }
+ 
+     if (!JS_IdToValue(cx, ids->vector[i], &v) ||
+         !(str = JS_ValueToString(cx, v)))
+-    {
+-        *ok = JS_FALSE;
+         return true;
+-    }
+ 
+     *idp = JS_GetStringChars(str);
+-    *ok = JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
+-                             INT_TO_JSVAL(i + 1));
++    *status = JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
++                                 INT_TO_JSVAL(i + 1));
+     return true;
+ }
+     
+ bool
+ ObjectWrapperChild::RecvNewEnumerateDestroy(const JSVariant& in_state)
+ {
+     JSObject* state;
+     JSContext* cx = Manager()->GetContext();
+@@ -422,85 +474,86 @@ ObjectWrapperChild::AnswerIterator(/* no
+     AutoContextPusher acp(cx);
+     JSObject* iterObj = JS_NewPropertyIterator(cx, mObj);
+     *iterator = Manager()->GetOrCreateWrapper(iterObj);
+     return true;
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerNewResolve(const nsString& id, const int& flags,
+-                                     JSBool* ok, PObjectWrapperChild** obj2)
++                                     OperationStatus* status, PObjectWrapperChild** obj2)
+ {
+     jsid interned_id;
+     
+-    *ok = JS_FALSE;
+     *obj2 = NULL;
+ 
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
+-
++    AutoCheckOperation aco(this, status);
++    
+     if (!jsid_from_nsString(cx, id, &interned_id))
+         return false;
+ 
+     CPOW_LOG(("new-resolving \"%s\"...",
+               NS_ConvertUTF16toUTF8(id).get()));
+ 
+     JSPropertyDescriptor desc;
+     if (!JS_GetPropertyDescriptorById(cx, mObj, interned_id, flags, &desc))
+         return true;
+ 
+-    *ok = JS_TRUE;
++    *status = JS_TRUE;
+ 
+     if (desc.obj)
+         *obj2 = Manager()->GetOrCreateWrapper(desc.obj);
+ 
+     return true;
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerConvert(const JSType& type,
+-                                  JSBool* ok, JSVariant* vp)
++                                  OperationStatus* status, JSVariant* vp)
+ {
+     jsval v;
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
+-    *ok = JS_ConvertValue(cx, OBJECT_TO_JSVAL(mObj), type, &v);
+-    return jsval_to_JSVariant(cx, *ok ? v : JSVAL_VOID, vp);
++    AutoCheckOperation aco(this, status);
++    *status = JS_ConvertValue(cx, OBJECT_TO_JSVAL(mObj), type, &v);
++    return jsval_to_JSVariant(cx, aco.Ok() ? v : JSVAL_VOID, vp);
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerCall(PObjectWrapperChild* receiver, const nsTArray<JSVariant>& argv,
+-                               JSBool* ok, JSVariant* rval)
++                               OperationStatus* status, JSVariant* rval)
+ {
+-    *ok = JS_FALSE;
+-
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
++    AutoCheckOperation aco(this, status);
+ 
+     JSObject* obj;
+     if (!JSObject_from_PObjectWrapperChild(cx, receiver, &obj))
+         return false;
+ 
+     jsval rv, jsargs[argv.Length()];
+     for (PRUint32 i = 0; i < argv.Length(); ++i)
+         if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
+             return false;
+ 
+-    *ok = JS_CallFunctionValue(cx, obj, OBJECT_TO_JSVAL(mObj),
+-                               argv.Length(), jsargs, &rv);
++    *status = JS_CallFunctionValue(cx, obj, OBJECT_TO_JSVAL(mObj),
++                                   argv.Length(), jsargs, &rv);
+ 
+-    return jsval_to_JSVariant(cx, *ok ? rv : JSVAL_VOID, rval);
++    return jsval_to_JSVariant(cx, aco.Ok() ? rv : JSVAL_VOID, rval);
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerConstruct(const nsTArray<JSVariant>& argv,
+-                                    JSBool* ok, PObjectWrapperChild** rval)
++                                    OperationStatus* status, PObjectWrapperChild** rval)
+ {
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
++    AutoCheckOperation aco(this, status);
+ 
+     JSClass* clasp = NULL;
+     JSObject* pobj = JSVAL_NULL;
+     {
+         jsval pval;
+         if (JS_GetProperty(cx, mObj, "prototype", &pval) &&
+             JSVAL_IS_OBJECT(pval))
+         {
+@@ -508,34 +561,35 @@ ObjectWrapperChild::AnswerConstruct(cons
+             clasp = JS_GetClass(cx, pobj);
+         }
+     }
+     JSObject* obj = JS_NewObject(cx, clasp, pobj, NULL);
+     PObjectWrapperChild* wrapper = Manager()->GetOrCreateWrapper(obj);
+ 
+     JSVariant override;
+     bool answer = AnswerCall(*rval = wrapper,
+-                             argv, ok, &override);
++                             argv, status, &override);
+ 
+     // Allow the constructor to return a different object from the one
+     // allocated for it by the JS_NewObject call above.
+     if (answer &&
+         override.type() == JSVariant::TPObjectWrapperChild &&
+         (wrapper = override.get_PObjectWrapperChild()))
+         *rval = wrapper;
+ 
+     return answer;
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerHasInstance(const JSVariant& v,
+-                                      JSBool* ok, JSBool* bp)
++                                      OperationStatus* status, JSBool* bp)
+ {
+     jsval candidate;
+     JSContext* cx = Manager()->GetContext();
+     AutoContextPusher acp(cx);
++    AutoCheckOperation aco(this, status);
+     if (!jsval_from_JSVariant(cx, v, &candidate))
+         return false;
+-    *ok = JS_HasInstance(cx, mObj, candidate, bp);
++    *status = JS_HasInstance(cx, mObj, candidate, bp);
+     return true;
+ }
+ 
+ }}
+diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
+--- a/js/src/ipc/ObjectWrapperChild.h
++++ b/js/src/ipc/ObjectWrapperChild.h
+@@ -4,25 +4,27 @@
+ #include "mozilla/jsipc/PObjectWrapperChild.h"
+ 
+ using mozilla::jsipc::JSVariant;
+ 
+ namespace mozilla {
+ namespace jsipc {
+ 
+ class ContextWrapperChild;
+-  
++
+ class ObjectWrapperChild
+     : public PObjectWrapperChild
+ {
+ public:
+ 
+     ObjectWrapperChild(JSContext* cx, JSObject* obj);
+ 
+     JSObject* GetJSObject() const { return mObj; }
++
++    void CheckOperation(OperationStatus* status);
+     
+ private:
+ 
+     JSObject* const mObj;
+ 
+     bool JSObject_to_JSVariant(JSContext* cx, JSObject* from, JSVariant* to);
+     bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
+ 
+@@ -38,46 +40,46 @@ private:
+ 
+ protected:
+ 
+     void ActorDestroy(ActorDestroyReason why);
+ 
+     bool AnswerAddProperty(const nsString& id);
+ 
+     bool AnswerGetProperty(const nsString& id,
+-                           JSBool* ok, JSVariant* vp);
++                           OperationStatus* status, JSVariant* vp);
+ 
+     bool AnswerSetProperty(const nsString& id, const JSVariant& v,
+-                           JSBool* ok, JSVariant* vp);
++                           OperationStatus* status, JSVariant* vp);
+ 
+     bool AnswerDelProperty(const nsString& id,
+-                           JSBool* ok, JSVariant* vp);
++                           OperationStatus* status, JSVariant* vp);
+ 
+     bool AnswerNewEnumerateInit(/* no in-parameters */
+-                                JSBool* ok, JSVariant* statep, int* idp);
++                                OperationStatus* status, JSVariant* statep, int* idp);
+ 
+     bool AnswerNewEnumerateNext(const JSVariant& in_state,
+-                                JSBool* ok, JSVariant* statep, nsString* idp);
++                                OperationStatus* status, JSVariant* statep, nsString* idp);
+ 
+     bool RecvNewEnumerateDestroy(const JSVariant& in_state);
+ 
+     bool AnswerIterator(/* no in-parameters */
+                         PObjectWrapperChild** iterator);
+     
+     bool AnswerNewResolve(const nsString& id, const int& flags,
+-                          JSBool* ok, PObjectWrapperChild** obj2);
++                          OperationStatus* status, PObjectWrapperChild** obj2);
+ 
+     bool AnswerConvert(const JSType& type,
+-                       JSBool* ok, JSVariant* vp);
++                       OperationStatus* status, JSVariant* vp);
+ 
+     bool AnswerCall(PObjectWrapperChild* receiver, const nsTArray<JSVariant>& argv,
+-                    JSBool* ok, JSVariant* rval);
++                    OperationStatus* status, JSVariant* rval);
+ 
+     bool AnswerConstruct(const nsTArray<JSVariant>& argv,
+-                         JSBool* ok, PObjectWrapperChild** rval);
++                         OperationStatus* status, PObjectWrapperChild** rval);
+ 
+     bool AnswerHasInstance(const JSVariant& v,
+-                           JSBool* ok, JSBool* bp);
++                           OperationStatus* status, JSBool* bp);
+ };
+ 
+ }}
+   
+ #endif
+diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
+--- a/js/src/ipc/ObjectWrapperParent.cpp
++++ b/js/src/ipc/ObjectWrapperParent.cpp
+@@ -61,16 +61,64 @@ namespace {
+             : mManager(cwp)
+         {
+             JS_GUARD_OBJECT_NOTIFIER_INIT;
+             mManager->CallBeginRequest();
+         }
+         ~AutoRequest() { mManager->CallEndRequest(); }
+     };
+ 
++    class AutoCheckOperation {
++
++        JSContext* const mContext;
++        ObjectWrapperParent* const mObjectWrapper;
++        OperationStatus mStatus;
++
++        JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
++
++    public:
++
++        AutoCheckOperation(JSContext* cx,
++                           ObjectWrapperParent* owp
++                           JS_GUARD_OBJECT_NOTIFIER_PARAM)
++            : mContext(cx)
++            , mObjectWrapper(owp)
++            , mStatus(JS_FALSE)
++        {
++            JS_GUARD_OBJECT_NOTIFIER_INIT;
++        }
++
++        ~AutoCheckOperation() {
++            mObjectWrapper->CheckOperation(mContext, &mStatus);
++        }
++
++        OperationStatus* StatusPtr() { return &mStatus; }
++
++        bool Ok() {
++            return (mStatus.type() == OperationStatus::TJSBool &&
++                    mStatus.get_JSBool());
++        }
++
++    };
++
++}
++
++void
++ObjectWrapperParent::CheckOperation(JSContext* cx,
++                                    OperationStatus* status)
++{
++    NS_PRECONDITION(status->type() != OperationStatus::T__None,
++                    "Checking an uninitialized operation.");
++
++    if (status->type() == OperationStatus::TJSVariant) {
++        jsval thrown;
++        if (jsval_from_JSVariant(cx, status->get_JSVariant(), &thrown))
++            JS_SetPendingException(cx, thrown);
++        *status = JS_FALSE;
++    }
+ }
+ 
+ const JSExtendedClass _::sCPOW_JSClass = {
+     // JSClass (JSExtendedClass.base) initialization
+     { "CrossProcessObjectWrapper",
+       JSCLASS_NEW_RESOLVE | JSCLASS_NEW_ENUMERATE | JSCLASS_IS_EXTENDED |
+       JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
+       _::CPOW_AddProperty,
+@@ -323,24 +371,24 @@ ObjectWrapperParent::CPOW_GetProperty(JS
+     if (!self)
+         return JS_FALSE;
+ 
+     nsString in_id;
+ 
+     if (!jsval_to_nsString(cx, id, &in_id))
+         return JS_FALSE;
+ 
+-    JSBool out_ok;
++    AutoCheckOperation aco(cx, self);
+     JSVariant out_v;
+     
+     AutoRequest request(self->Manager());
+ 
+     return (self->CallGetProperty(in_id,
+-                                  &out_ok, &out_v) &&
+-            out_ok &&
++                                  aco.StatusPtr(), &out_v) &&
++            aco.Ok() &&
+             self->jsval_from_JSVariant(cx, out_v, vp));
+ }
+ 
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id,
+                                       jsval *vp)
+ {
+     CPOW_LOG(("Calling CPOW_SetProperty (%s)...",
+@@ -351,25 +399,25 @@ ObjectWrapperParent::CPOW_SetProperty(JS
+         return JS_FALSE;
+ 
+     nsString in_id;
+     JSVariant in_v;
+ 
+     if (!jsval_to_nsString(cx, id, &in_id) ||
+         !self->jsval_to_JSVariant(cx, *vp, &in_v))
+         return JS_FALSE;
+-    
+-    JSBool out_ok;
++
++    AutoCheckOperation aco(cx, self);
+     JSVariant out_v;
+ 
+     AutoRequest request(self->Manager());
+ 
+     return (self->CallSetProperty(in_id, in_v,
+-                                  &out_ok, &out_v) &&
+-            out_ok &&
++                                  aco.StatusPtr(), &out_v) &&
++            aco.Ok() &&
+             self->jsval_from_JSVariant(cx, out_v, vp));
+ }    
+     
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_DelProperty(JSContext *cx, JSObject *obj, jsval id,
+                                       jsval *vp)
+ {
+     CPOW_LOG(("Calling CPOW_DelProperty (%s)...",
+@@ -379,54 +427,54 @@ ObjectWrapperParent::CPOW_DelProperty(JS
+     if (!self)
+         return JS_FALSE;
+ 
+     nsString in_id;
+ 
+     if (!jsval_to_nsString(cx, id, &in_id))
+         return JS_FALSE;
+ 
+-    JSBool out_ok;
++    AutoCheckOperation aco(cx, self);
+     JSVariant out_v;
+     
+     AutoRequest request(self->Manager());
+ 
+     return (self->CallDelProperty(in_id,
+-                                  &out_ok, &out_v) &&
+-            out_ok &&
++                                  aco.StatusPtr(), &out_v) &&
++            aco.Ok() &&
+             jsval_from_JSVariant(cx, out_v, vp));
+ }
+ 
+ JSBool
+ ObjectWrapperParent::NewEnumerateInit(JSContext* cx, jsval* statep, jsid* idp)
+ {
+-    JSBool out_ok;
++    AutoCheckOperation aco(cx, this);
+     JSVariant out_state;
+     int out_id;
+-
+-    return (CallNewEnumerateInit(&out_ok, &out_state, &out_id) &&
+-            out_ok &&
++    
++    return (CallNewEnumerateInit(aco.StatusPtr(), &out_state, &out_id) &&
++            aco.Ok() &&
+             jsval_from_JSVariant(cx, out_state, statep) &&
+             (!idp || jsid_from_int(cx, out_id, idp)));
+ }
+ 
+ JSBool
+ ObjectWrapperParent::NewEnumerateNext(JSContext* cx, jsval* statep, jsid* idp)
+ {
+     JSVariant in_state;
+     if (!jsval_to_JSVariant(cx, *statep, &in_state))
+         return JS_FALSE;
+ 
+-    JSBool out_ok;
++    AutoCheckOperation aco(cx, this);
+     JSVariant out_state;
+     nsString out_id;
+ 
+     if (CallNewEnumerateNext(in_state,
+-                             &out_ok, &out_state, &out_id) &&
+-        out_ok &&
++                             aco.StatusPtr(), &out_state, &out_id) &&
++        aco.Ok() &&
+         jsval_from_JSVariant(cx, out_state, statep) &&
+         jsid_from_nsString(cx, out_id, idp))
+     {
+         JSObject* obj = GetJSObject(cx);
+         AutoResolveFlag arf(cx, obj);
+         return JS_DefinePropertyById(cx, obj, *idp, JSVAL_VOID, NULL, NULL,
+                                      JSPROP_ENUMERATE);
+     }
+@@ -485,23 +533,23 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
+     if (!self)
+         return JS_FALSE;
+ 
+     nsString in_id;
+ 
+     if (!jsval_to_nsString(cx, id, &in_id))
+         return JS_FALSE;
+ 
+-    JSBool out_ok;
++    AutoCheckOperation aco(cx, self);
+     PObjectWrapperParent* out_pobj;
+     {
+         AutoRequest request(self->Manager());
+         if (!self->CallNewResolve(in_id, flags,
+-                                  &out_ok, &out_pobj) ||
+-            !out_ok ||
++                                  aco.StatusPtr(), &out_pobj) ||
++            !aco.Ok() ||
+             !JSObject_from_PObjectWrapperParent(cx, out_pobj, objp))
+             return JS_FALSE;
+     }
+     jsid interned_id;
+     if (*objp &&
+         JS_ValueToId(cx, id, &interned_id)) {
+         AutoResolveFlag arf(cx, *objp);
+         JS_DefinePropertyById(cx, *objp, interned_id, JSVAL_VOID, NULL, NULL,
+@@ -556,24 +604,24 @@ ObjectWrapperParent::CPOW_Call(JSContext
+         receiver = manager->GetGlobalObjectWrapper();
+     }
+ 
+     nsTArray<JSVariant> in_argv(argc);
+     for (uintN i = 0; i < argc; i++)
+         if (!jsval_to_JSVariant(cx, argv[i], in_argv.AppendElement()))
+             return JS_FALSE;
+     
+-    JSBool out_ok;
++    AutoCheckOperation aco(cx, function);
+     JSVariant out_rval;
+ 
+     AutoRequest request(function->Manager());
+ 
+     return (function->CallCall(receiver, in_argv,
+-                               &out_ok, &out_rval) &&
+-            out_ok &&
++                               aco.StatusPtr(), &out_rval) &&
++            aco.Ok() &&
+             jsval_from_JSVariant(cx, out_rval, rval));
+ }
+ 
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_Construct(JSContext *cx, JSObject *obj, uintN argc,
+                                     jsval *argv, jsval *rval)
+ {
+     CPOW_LOG(("Calling CPOW_Construct..."));
+@@ -583,24 +631,24 @@ ObjectWrapperParent::CPOW_Construct(JSCo
+     if (!constructor)
+         return JS_FALSE;
+ 
+     nsTArray<JSVariant> in_argv(argc);
+     for (uintN i = 0; i < argc; i++)
+         if (!jsval_to_JSVariant(cx, argv[i], in_argv.AppendElement()))
+             return JS_FALSE;
+ 
+-    JSBool out_ok;
++    AutoCheckOperation aco(cx, constructor);
+     PObjectWrapperParent* out_powp;
+ 
+     AutoRequest request(constructor->Manager());
+ 
+     return (constructor->CallConstruct(in_argv,
+-                                       &out_ok, &out_powp) &&
+-            out_ok &&
++                                       aco.StatusPtr(), &out_powp) &&
++            aco.Ok() &&
+             jsval_from_PObjectWrapperParent(cx, out_powp, rval));
+ }
+ 
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_HasInstance(JSContext *cx, JSObject *obj, jsval v,
+                                       JSBool *bp)
+ {
+     CPOW_LOG(("Calling CPOW_HasInstance..."));
+@@ -611,23 +659,23 @@ ObjectWrapperParent::CPOW_HasInstance(JS
+     if (!self)
+         return JS_FALSE;
+ 
+     JSVariant in_v;
+ 
+     if (!jsval_to_JSVariant(cx, v, &in_v))
+         return JS_FALSE;
+ 
+-    JSBool out_ok;
++    AutoCheckOperation aco(cx, self);
+ 
+     AutoRequest request(self->Manager());
+ 
+     return (self->CallHasInstance(in_v,
+-                                  &out_ok, bp) &&
+-            out_ok);
++                                  aco.StatusPtr(), bp) &&
++            aco.Ok());
+ }
+ 
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_Equality(JSContext *cx, JSObject *obj, jsval v,
+                                    JSBool *bp)
+ {
+     CPOW_LOG(("Calling CPOW_Equality..."));
+ 
+diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
+--- a/js/src/ipc/ObjectWrapperParent.h
++++ b/js/src/ipc/ObjectWrapperParent.h
+@@ -21,16 +21,19 @@ public:
+     {}
+ 
+     JSObject* GetJSObject(JSContext* cx) const;
+ 
+     jsval GetJSVal(JSContext* cx) const {
+         return OBJECT_TO_JSVAL(GetJSObject(cx));
+     }
+ 
++    void CheckOperation(JSContext* cx,
++                        OperationStatus* status);
++
+     static const JSExtendedClass sCPOW_JSClass;
+ 
+ protected:
+ 
+     void ActorDestroy(ActorDestroyReason why);
+ 
+     ContextWrapperParent* Manager();
+ 
+diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
+--- a/js/src/ipc/PObjectWrapper.ipdl
++++ b/js/src/ipc/PObjectWrapper.ipdl
+@@ -16,69 +16,74 @@ union JSVariant {
+     nsString;
+     int;
+     double;
+     bool; // We'd like to use JSBool here, but JSBool is really JSIntn,
+           // and IPC::ParamTraits mistakes JSIntn for int.
+     null_t;
+ };
+ 
++union OperationStatus {
++    JSBool;
++    JSVariant; // Exception thrown.
++};
++
+ rpc protocol PObjectWrapper
+ {
+     manager PContextWrapper;
+ 
+ child:
+     __delete__(); // unroot
+ 
+     rpc AddProperty(nsString id);
+ 
+     rpc GetProperty(nsString id)
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  JSVariant vp);
+ 
+     rpc SetProperty(nsString id,
+                     JSVariant v)
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  JSVariant vp);
+ 
+     rpc DelProperty(nsString id)
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  JSVariant vp);
+ 
+     rpc NewEnumerateInit()
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  JSVariant statep,
+                  int idp);
+ 
+     rpc NewEnumerateNext(JSVariant in_state)
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  JSVariant statep,
+                  nsString idp);
+ 
+     async NewEnumerateDestroy(JSVariant in_state);
+ 
+     rpc Iterator()
+         returns (PObjectWrapper iterator);
+ 
+     rpc NewResolve(nsString id,
+                    int flags)
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  nullable PObjectWrapper obj2);
+ 
+     rpc Convert(JSType type)
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  JSVariant vp);
+ 
+     rpc Call(PObjectWrapper receiver,
+              JSVariant[] argv)
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  JSVariant rval);
+ 
+     rpc Construct(JSVariant[] argv)
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  PObjectWrapper rval);
+ 
+     rpc HasInstance(JSVariant v)
+-        returns (JSBool ok,
++        returns (OperationStatus status,
+                  JSBool bp);
+ };
+ 
+ }}
