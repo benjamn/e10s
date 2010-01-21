@@ -143,7 +143,7 @@ diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -1,17 +1,48 @@
+@@ -1,17 +1,51 @@
  #include "mozilla/jsipc/ContextWrapperChild.h"
  #include "mozilla/jsipc/ObjectWrapperChild.h"
  #include "mozilla/jsipc/CPOWTypes.h"
@@ -158,28 +158,31 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +namespace {
 +
 +    class AutoContextPusher {
-+        ContextWrapperChild* const mContextWrapper;
++
++        JSContext* const mContext;
++
 +        JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
++
 +    public:
-+        AutoContextPusher(ContextWrapperChild* cwc
++
++        AutoContextPusher(JSContext* cx
 +                          JS_GUARD_OBJECT_NOTIFIER_PARAM)
-+            : mContextWrapper(cwc)
++            : mContext(cx)
 +        {
 +            JS_GUARD_OBJECT_NOTIFIER_INIT;
 +            nsresult rv =
-+                nsContentUtils::ThreadJSContextStack()->Push(GetContext());
-+            NS_ASSERTION(NS_SUCCEEDED(rv), "Failed to push our context");
++                nsContentUtils::ThreadJSContextStack()->Push(mContext);
++            NS_ASSERTION(NS_SUCCEEDED(rv), "Failed to push our context");            
 +        }
++
 +        ~AutoContextPusher() {
 +            JSContext* popped;
 +            nsresult rv =
 +                nsContentUtils::ThreadJSContextStack()->Pop(&popped);
-+            NS_ASSERTION(NS_SUCCEEDED(rv) && GetContext() == popped,
-+                         "Failed to pop our context");
++            NS_ASSERTION(NS_SUCCEEDED(rv) && mContext == popped,
++                         "Failed to pop our context");            
 +        }
-+        JSContext* GetContext() const {
-+            return mContextWrapper->GetContext();
-+        }
++
 +    };
 +
 +}
@@ -192,7 +195,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                      "mozilla::jsipc::ObjectWrapperChild-rooted JSObject*");
  }
  
-@@ -158,35 +189,36 @@ jsid_from_nsString(JSContext* cx, const 
+@@ -158,17 +192,18 @@ jsid_from_nsString(JSContext* cx, const 
  
  #if 0
  // The general schema for ObjectWrapperChild::Answer* methods:
@@ -202,8 +205,8 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      // initialize out-parameters for failure
 -    JSAutoRequest request(Manager()->GetContext());
-+    JSAutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    JSContext* cx = Manager()->GetContext();
++    AutoContextPusher acp(cx);
      // validate in-parameters, else return false
      // successfully perform local JS operations, else return true
      // perform out-parameter conversions, else return false
@@ -212,7 +215,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  // There's an important subtlety here: though a local JS operation may
  // fail, leaving out-parameters uninitialized, we must initialize all
  // out-parameters when reporting success (returning true) to the IPC
- // messaging system.  See AnswerGetProperty for illustration.
+@@ -176,17 +211,17 @@ ObjectWrapperChild::AnswerSomething(/* i
  #endif
  
  bool
@@ -220,10 +223,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      jsid interned_id;
  
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
  
      if (!jsid_from_nsString(cx, id, &interned_id))
          return false;
@@ -232,8 +234,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      return true;
  }
  
-@@ -194,18 +226,18 @@ bool
- ObjectWrapperChild::AnswerGetProperty(const nsString& id,
+@@ -195,17 +230,17 @@ ObjectWrapperChild::AnswerGetProperty(co
                                        JSBool* ok, JSVariant* vp)
  {
      jsid interned_id;
@@ -241,10 +242,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      *ok = JS_FALSE;
  
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
  
      if (!jsid_from_nsString(cx, id, &interned_id))
          return false;
@@ -253,8 +253,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      // Since we fully expect this call to jsval_to_JSVariant to return
      // true, we can't just leave vp uninitialized when JS_GetPropertyById
-@@ -220,18 +252,18 @@ ObjectWrapperChild::AnswerSetProperty(co
-                                       JSBool* ok, JSVariant* vp)
+@@ -221,17 +256,17 @@ ObjectWrapperChild::AnswerSetProperty(co
  {
      jsid interned_id;
      jsval val;
@@ -262,10 +261,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      *ok = JS_FALSE;
      *vp = v;
  
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
  
      if (!jsid_from_nsString(cx, id, &interned_id) ||
          !jsval_from_JSVariant(cx, v, &val))
@@ -274,8 +272,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      *ok = JS_SetPropertyById(cx, mObj, interned_id, &val);
  
      return jsval_to_JSVariant(cx, *ok ? val : JSVAL_VOID, vp);
-@@ -241,18 +273,18 @@ bool
- ObjectWrapperChild::AnswerDelProperty(const nsString& id,
+@@ -242,17 +277,17 @@ ObjectWrapperChild::AnswerDelProperty(co
                                        JSBool* ok, JSVariant* vp)
  {
      jsid interned_id;
@@ -283,10 +280,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      *ok = JS_FALSE;
  
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
  
      if (!jsid_from_nsString(cx, id, &interned_id))
          return false;
@@ -295,8 +291,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      return jsval_to_JSVariant(cx, *ok ? val : JSVAL_VOID, vp);
  }
-@@ -283,18 +315,18 @@ static const JSClass sCPOW_NewEnumerateS
- 
+@@ -284,17 +319,17 @@ static const JSClass sCPOW_NewEnumerateS
  bool
  ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
                                             JSBool* ok, JSVariant* statep, int* idp)
@@ -304,10 +299,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      *ok = JS_FALSE;
      *idp = 0;
  
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
  
      JSClass* clasp = const_cast<JSClass*>(&sCPOW_NewEnumerateState_JSClass);
      JSObject* state = JS_NewObjectWithGivenProto(cx, clasp, NULL, NULL);
@@ -316,8 +310,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      
      for (JSObject* proto = mObj;
           proto;
-@@ -330,18 +362,18 @@ ObjectWrapperChild::AnswerNewEnumerateNe
-     jsval v;
+@@ -331,17 +366,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
      JSIdArray* ids;
      JSString* str;
  
@@ -325,10 +318,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      *statep = in_state;
      *idp = EmptyString();
      
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
  
      if (!JSObject_from_JSVariant(cx, in_state, &state) ||
          !JS_GetReservedSlot(cx, state, sIdArraySlot, &v) ||
@@ -337,8 +329,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
          return false;
  
      int i = JSVAL_TO_INT(v);
-@@ -362,44 +394,44 @@ ObjectWrapperChild::AnswerNewEnumerateNe
-                              INT_TO_JSVAL(i + 1));
+@@ -363,43 +398,43 @@ ObjectWrapperChild::AnswerNewEnumerateNe
      return true;
  }
      
@@ -346,10 +337,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  ObjectWrapperChild::RecvNewEnumerateDestroy(const JSVariant& in_state)
  {
      JSObject* state;
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
      return (JSObject_from_JSVariant(cx, in_state, &state) &&
              JS_SetReservedSlot(cx, state, sIdArraySlot, JSVAL_ZERO));
  }
@@ -358,10 +348,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  ObjectWrapperChild::AnswerIterator(/* no in-parameters */
                                     PObjectWrapperChild** iterator)
  {
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
      JSObject* iterObj = JS_NewPropertyIterator(cx, mObj);
      *iterator = Manager()->GetOrCreateWrapper(iterObj);
      return true;
@@ -376,10 +365,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      *ok = JS_FALSE;
      *obj2 = NULL;
  
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
  
      if (!jsid_from_nsString(cx, id, &interned_id))
          return false;
@@ -388,8 +376,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                NS_ConvertUTF16toUTF8(id).get()));
  
      JSPropertyDescriptor desc;
-@@ -414,30 +446,30 @@ ObjectWrapperChild::AnswerNewResolve(con
-     return true;
+@@ -415,29 +450,29 @@ ObjectWrapperChild::AnswerNewResolve(con
  }
  
  bool
@@ -397,10 +384,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                                    JSBool* ok, JSVariant* vp)
  {
      jsval v;
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
      *ok = JS_ConvertValue(cx, OBJECT_TO_JSVAL(mObj), type, &v);
      return jsval_to_JSVariant(cx, *ok ? v : JSVAL_VOID, vp);
  }
@@ -411,11 +397,10 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      *ok = JS_FALSE;
 -    
--    JSContext* cx = Manager()->GetContext();
--    JSAutoRequest request(cx);
 +
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
+     JSContext* cx = Manager()->GetContext();
+-    JSAutoRequest request(cx);
++    AutoContextPusher acp(cx);
  
      JSObject* obj;
      if (!JSObject_from_PObjectWrapperChild(cx, receiver, &obj))
@@ -424,8 +409,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      jsval rv, jsargs[argv.Length()];
      for (PRUint32 i = 0; i < argv.Length(); ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
-@@ -448,18 +480,18 @@ ObjectWrapperChild::AnswerCall(PObjectWr
- 
+@@ -449,17 +484,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
      return jsval_to_JSVariant(cx, *ok ? rv : JSVAL_VOID, rval);
  }
  
@@ -433,10 +417,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  ObjectWrapperChild::AnswerConstruct(const nsTArray<JSVariant>& argv,
                                      JSBool* ok, PObjectWrapperChild** rval)
  {
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
  
      JSClass* clasp = NULL;
      JSObject* pobj = JSVAL_NULL;
@@ -445,8 +428,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
          if (JS_GetProperty(cx, mObj, "prototype", &pval) &&
              JSVAL_IS_OBJECT(pval))
          {
-@@ -484,17 +516,17 @@ ObjectWrapperChild::AnswerConstruct(cons
-     return answer;
+@@ -485,16 +520,16 @@ ObjectWrapperChild::AnswerConstruct(cons
  }
  
  bool
@@ -454,10 +436,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                                        JSBool* ok, JSBool* bp)
  {
      jsval candidate;
--    JSContext* cx = Manager()->GetContext();
+     JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
-+    AutoContextPusher stack(Manager());
-+    JSContext* cx = stack.GetContext();
++    AutoContextPusher acp(cx);
      if (!jsval_from_JSVariant(cx, v, &candidate))
          return false;
      *ok = JS_HasInstance(cx, mObj, candidate, bp);
