@@ -3,5 +3,4 @@ run_test_on_client_patch_521922.diff
 cpow.diff
 new-request-model.diff
 test-cpow.diff
-test-exceptions.diff
 cpow-exceptions.diff

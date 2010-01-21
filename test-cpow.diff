@@ -51,7 +51,7 @@ diff --git a/js/src/ipc/tests/adhoc/child.html b/js/src/ipc/tests/adhoc/child.ht
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/adhoc/child.html
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,30 @@
 +<html>
 +  <head>
 +  </head>
@@ -72,6 +72,9 @@ new file mode 100644
 +          document.body.appendChild(document.createElement("div")).innerHTML =
 +            "called f(" + x + ")";
 +          return x + Math.PI;
++        },
++        pitch: function(ball) {
++          throw ball;
 +        }
 +      };
 +      window.foo.self = window.foo;
@@ -83,7 +86,7 @@ diff --git a/js/src/ipc/tests/adhoc/test.xul b/js/src/ipc/tests/adhoc/test.xul
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/adhoc/test.xul
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,84 @@
 +<?xml version="1.0"?>
 +<?xml-stylesheet href="chrome://global/skin" type="text/css"?>
 +<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
@@ -130,6 +133,15 @@ new file mode 100644
 +            self = foo.self;
 +        alert("foo == self? " + (foo == self));
 +        alert("foo === self? " + (foo === self));
++      },
++      exceptions: function(child) {
++        var ball = "ball";
++        try {
++          child.foo.pitch(ball);
++          alert("shouldn't reach this point");
++        } catch (x) {
++          alert("ball === x? " + (ball === x));
++        }
 +      }
 +    }
 +
@@ -144,6 +156,8 @@ new file mode 100644
 +      cpow_tests.iterate(child.foo);
 +      cpow_tests.funcalls(child.foo);
 +      cpow_tests.equality(child);
++      cpow_tests.exceptions(child);
++    
 +    }
 +  </script>
 +
@@ -161,7 +175,7 @@ diff --git a/js/src/ipc/tests/unit/cpow_child.js b/js/src/ipc/tests/unit/cpow_ch
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/cpow_child.js
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,56 @@
 +var data = {
 +  answer: 42,
 +  nested: { objects: { work: "yes they do" } },
@@ -213,12 +227,16 @@ new file mode 100644
 +}
 +B.prototype = new A;
 +
++function pitch(ball) {
++  throw ball;
++}
++
 +function run_test() {}
 diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpow.js
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,136 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -235,6 +253,7 @@ new file mode 100644
 +  test_enumeration(obj.A, obj.B);
 +  test_Array(obj.Array);
 +  test_Function(obj.Function);
++  test_exceptions(obj.pitch, obj.Object);
 +
 +  do_test_finished();
 +}
@@ -332,4 +351,25 @@ new file mode 100644
 +function test_Function(ChildFunction) {
 +  var succ = new ChildFunction("x", "return x + 1");
 +  do_check_eq(succ(succ(3)), 5);
++}
++
++function test_exceptions(pitch, ChildObject) {
++  try {
++    throw "parent-only";
++  } catch (x) {
++    do_check_eq(x, "parent-only");
++  }
++  var ball = new ChildObject(),
++      thrown = false;
++  ball.sport = "baseball";
++  try {
++    pitch(ball);
++    do_throw("Should have thrown.");
++  } catch (x) {
++    thrown = true;
++    do_check_eq(x.sport, "baseball");
++    do_check_eq(x, ball);
++    do_check_true(x === ball);
++  }
++  do_check_true(thrown);
 +}
