@@ -2,6 +2,6 @@ tolerate-browserchrome-failure.diff
 run_test_on_client_patch_521922.diff
 cpow.diff
 new-request-model.diff
-test_cpow.diff
+test-cpow.diff
 test-exceptions.diff
 operation-status.diff
