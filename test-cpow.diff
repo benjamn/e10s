@@ -236,7 +236,7 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,148 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -247,8 +247,10 @@ new file mode 100644
 +  test_properties(obj.data);
 +  test_delete(obj.data);
 +  test_toString(obj.data);
-+  test_inheritance(obj.data);
-+  test_constructor(obj.data.constructor);
++  test_inheritance(obj.data.derived);
++  test_constructor(obj.data.constructor,
++                   obj.Function,
++                   obj.Object);
 +  test_instanceof(obj.A, obj.B);
 +  test_enumeration(obj.A, obj.B);
 +  test_Array(obj.Array);
@@ -295,20 +297,29 @@ new file mode 100644
 +  do_check_eq(new String(data), "CPOW");
 +}
 +
-+function test_inheritance(data) {
-+  do_check_true("inherited" in data.derived);
-+  do_check_false(data.derived.hasOwnProperty("inherited"));
-+  var base = data.derived.__proto__;
++function test_inheritance(derived) {
++  do_check_true("inherited" in derived);
++  do_check_false(derived.hasOwnProperty("inherited"));
++  var base = derived.__proto__;
 +  do_check_true(base.hasOwnProperty("inherited"));
-+  do_check_eq(data.derived.inherited, "inherited");
-+  do_check_eq(data.derived.method(), "called");
-+  do_check_eq(base.method, data.derived.method);
-+  do_check_true(base.method === data.derived.method);
++  do_check_eq(derived.inherited, "inherited");
++  do_check_eq(derived.method(), "called");
++  do_check_eq(base.method, derived.method);
++  do_check_true(base.method === derived.method);
 +}
 +
-+function test_constructor(ctor) {
++function test_constructor(ctor, ChildFunction, ChildObject) {
 +  var obj = new ctor(42);
 +  obj.check(obj);
++
++  // Re-run test_inheritance, creating locally everything that
++  // test_inheritance expects to be created in the child process:
++  var empty = new ChildFunction(),
++      proto = new ChildObject();
++  proto.inherited = "inherited";
++  proto.method = new ChildFunction("return 'called'");
++  empty.prototype = proto;
++  test_inheritance(new empty);
 +}
 +
 +function test_enumeration(A, B) {
@@ -351,6 +362,7 @@ new file mode 100644
 +function test_Function(ChildFunction) {
 +  var succ = new ChildFunction("x", "return x + 1");
 +  do_check_eq(succ(succ(3)), 5);
++  do_check_eq(succ + "", "" + new Function("x", "return x + 1"));
 +}
 +
 +function test_exceptions(pitch, ChildObject) {
