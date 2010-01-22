@@ -236,7 +236,7 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,192 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -256,6 +256,8 @@ new file mode 100644
 +  test_Array(obj.Array);
 +  test_Function(obj.Function);
 +  test_exceptions(obj.pitch, obj.Object);
++  test_generators(obj.Function);
++  test_Iterator(obj.data, obj.Iterator, obj.StopIteration);
 +
 +  do_test_finished();
 +}
@@ -384,4 +386,46 @@ new file mode 100644
 +    do_check_true(x === ball);
 +  }
 +  do_check_true(thrown);
++}
++
++function test_generators(ChildFunction) {
++  // Run the test with own Function just to keep sane:
++  if (ChildFunction != Function)
++    test_generators(Function);
++
++  var count = 0, sum = 0,
++      genFn = new ChildFunction("for(var i = 1; i < 4; i++) yield i");
++
++  var gen = genFn();
++  do try { sum += gen.next(); }
++     catch (x) { break; }
++  while ((count += 1));
++  do_check_eq(count, 3);
++  do_check_eq(sum, 6);
++
++  try {
++    for (var n in genFn()) {
++      count += 1;
++      sum += n;
++    }
++  } catch (x) {}
++  do_check_eq(count, 6);
++  do_check_eq(sum, 12);
++}
++
++function test_Iterator(data, ChildIterator, ChildStopIteration) {
++  do_check_true(data && ChildIterator && true);
++  var copy = {},
++      thrown = null;
++  try {
++    for (var kv in ChildIterator(data)) {
++      do_check_true(kv[0] in data);
++      do_check_eq(data[kv[0]], kv[1]);
++      copy[kv[0]] = kv[1];
++    }
++    // XXX I shouldn't have to be catching this, should I?
++  } catch (x) { thrown = x; }
++  do_check_true(thrown != null);
++  do_check_true(thrown instanceof ChildStopIteration);
++  do_check_eq(copy + "", "CPOW");
 +}
