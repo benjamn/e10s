@@ -175,7 +175,7 @@ diff --git a/js/src/ipc/tests/unit/cpow_child.js b/js/src/ipc/tests/unit/cpow_ch
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/cpow_child.js
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,62 @@
 +var data = {
 +  answer: 42,
 +  nested: { objects: { work: "yes they do" } },
@@ -231,12 +231,18 @@ new file mode 100644
 +  throw ball;
 +}
 +
++get_set = {
++  get foo() { return 42; },
++  get foo_throws() { throw "BAM"; },
++  set one(val) { this.two = val + 1; }
++};
++
 +function run_test() {}
 diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpow.js
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,221 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -258,6 +264,7 @@ new file mode 100644
 +  test_exceptions(obj.pitch, obj.Object);
 +  test_generators(obj.Function);
 +  test_Iterator(obj.data, obj.Iterator, obj.StopIteration);
++  test_getters_setters(obj.get_set, obj.Function);
 +
 +  do_test_finished();
 +}
@@ -428,4 +435,32 @@ new file mode 100644
 +  do_check_true(thrown != null);
 +  do_check_true(thrown instanceof ChildStopIteration);
 +  do_check_eq(copy + "", "CPOW");
++}
++
++function test_getters_setters(get_set, ChildFunction) {
++  do_check_eq(get_set.foo, 42);
++  var thrown = null;
++  try { get_set.bar = get_set.foo_throws; }
++  catch (x) { thrown = x; }
++  do_check_true(thrown != null);
++  do_check_eq(thrown, "BAM");
++  do_check_false("bar" in get_set);
++
++  get_set.two = 2222;
++  get_set.one = 1;
++  do_check_eq(get_set.two, 2);
++
++  var getter = new ChildFunction("return 'you got me'");
++  get_set.__defineGetter__("defined_getter", getter);
++  do_check_eq(get_set.defined_getter, "you got me");
++  do_check_eq(get_set.__lookupGetter__("defined_getter"),
++              getter);
++
++  var setter = new ChildFunction("val", "this.side_effect = val");
++  get_set.__defineSetter__("defined_setter", setter);
++  get_set.side_effect = "can't touch this";
++  get_set.defined_setter = "you set me";
++  do_check_eq(get_set.side_effect, "you set me");
++  do_check_eq(get_set.__lookupSetter__("defined_setter"),
++              setter);
 +}
