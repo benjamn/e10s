@@ -67,7 +67,26 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
  #include "nsIDOMEventTarget.h"
  #include "nsIFrame.h"
  #include "nsIFrameFrame.h"
-@@ -1513,16 +1515,34 @@ nsFrameLoader::ActivateFrameEvent(const 
+@@ -109,16 +111,18 @@
+ #ifdef MOZ_IPC
+ #include "ContentProcessParent.h"
+ #include "TabParent.h"
+ 
+ using namespace mozilla;
+ using namespace mozilla::dom;
+ #endif
+ 
++#include "jsapi.h"
++
+ class nsAsyncDocShellDestroyer : public nsRunnable
+ {
+ public:
+   nsAsyncDocShellDestroyer(nsIDocShell* aDocShell)
+     : mDocShell(aDocShell)
+   {
+   }
+ 
+@@ -1513,16 +1517,34 @@ nsFrameLoader::ActivateFrameEvent(const 
    if (mChildProcess) {
      mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
      return NS_OK;
