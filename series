@@ -4,3 +4,8 @@ cpow.diff
 new-request-model.diff
 test-cpow.diff
 cpow-exceptions.diff
+cjones/refactor1-removemanagee-540111.patch
+cjones/refactor2-rm-dealloc-540111.patch
+cjones/ipdl-tests-540111.patch
+cjones/cxx-test-540111.patch
+cjones/mm-540111.patch

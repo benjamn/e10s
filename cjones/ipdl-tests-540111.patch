@@ -1,0 +1,79 @@
+diff --git a/ipc/ipdl/test/ipdl/error/multimanDupMgrs.ipdl b/ipc/ipdl/test/ipdl/error/multimanDupMgrs.ipdl
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/ipdl/error/multimanDupMgrs.ipdl
+@@ -0,0 +1,8 @@
++include protocol "multimanDupMgrsMgr.ipdl";
++
++protocol multimanDupMgrs {
++    manager multimanDupMgrsMgr or multimanDupMgrsMgr;
++
++child:
++    __delete__();
++};
+diff --git a/ipc/ipdl/test/ipdl/error/multimanDupMgrsMgr.ipdl b/ipc/ipdl/test/ipdl/error/multimanDupMgrsMgr.ipdl
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/ipdl/error/multimanDupMgrsMgr.ipdl
+@@ -0,0 +1,9 @@
++include protocol "multimanDupMgrs.ipdl";
++
++protocol multimanDupMgrsMgr {
++    manages multimanDupMgrs;
++
++child:
++    multimanDupMgrs();
++    __delete__();
++};
+diff --git a/ipc/ipdl/test/ipdl/error/multimanNonexistentMgrs.ipdl b/ipc/ipdl/test/ipdl/error/multimanNonexistentMgrs.ipdl
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/ipdl/error/multimanNonexistentMgrs.ipdl
+@@ -0,0 +1,7 @@
++protocol multimanNonexistentManagers {
++    manager Starsky or Hutch;
++
++child:
++    Dummy();
++    __delete__();
++};
+diff --git a/ipc/ipdl/test/ipdl/ok/multiManaged.ipdl b/ipc/ipdl/test/ipdl/ok/multiManaged.ipdl
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/ipdl/ok/multiManaged.ipdl
+@@ -0,0 +1,9 @@
++include protocol "multiManager1.ipdl";
++include protocol "multiManager2.ipdl";
++
++protocol multiManaged {
++    manager multiManager1 or multiManager2;
++
++child:
++    __delete__();
++};
+diff --git a/ipc/ipdl/test/ipdl/ok/multiManager1.ipdl b/ipc/ipdl/test/ipdl/ok/multiManager1.ipdl
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/ipdl/ok/multiManager1.ipdl
+@@ -0,0 +1,8 @@
++include protocol "multiManaged.ipdl";
++
++protocol multiManager1 {
++    manages multiManaged;
++
++child:
++    multiManaged();
++};
+diff --git a/ipc/ipdl/test/ipdl/ok/multiManager2.ipdl b/ipc/ipdl/test/ipdl/ok/multiManager2.ipdl
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/ipdl/ok/multiManager2.ipdl
+@@ -0,0 +1,8 @@
++include protocol "multiManaged.ipdl";
++
++protocol multiManager2 {
++    manages multiManaged;
++
++child:
++    multiManaged();
++};

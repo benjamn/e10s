@@ -1,0 +1,134 @@
+diff --git a/ipc/ipdl/ipdl/lower.py b/ipc/ipdl/ipdl/lower.py
+--- a/ipc/ipdl/ipdl/lower.py
++++ b/ipc/ipdl/ipdl/lower.py
+@@ -1384,17 +1384,17 @@ class Protocol(ipdl.ast.Protocol):
+             return ExprSelect(actorThis, '->', self.idVar().name)
+         return self.idVar()
+ 
+     def idVar(self):
+         assert not self.decl.type.isToplevel()
+         return ExprVar('mId')
+ 
+     def managerVar(self, thisexpr=None):
+-        assert not self.decl.type.isToplevel()
++        assert thisexpr is not None or not self.decl.type.isToplevel()
+         mvar = ExprVar('mManager')
+         if thisexpr is not None:
+             mvar = ExprSelect(thisexpr, '->', mvar.name)
+         return mvar
+ 
+     def otherProcessVar(self):
+         assert self.decl.type.isToplevel()
+         return ExprVar('mOtherProcess')
+@@ -3124,16 +3124,18 @@ class _GenerateProtocolActorCode(ipdl.as
+             case.addstmts([
+                 StmtDecl(Decl(manageecxxtype, actorvar.name),
+                          ExprCast(listenervar, manageecxxtype, static=1)),
+                 _abortIfFalse(
+                     _cxxArrayHasElementSorted(manageearray, actorvar),
+                     "actor not managed by this!"),
+                 Whitespace.NL,
+                 StmtExpr(_callCxxArrayRemoveSorted(manageearray, actorvar)),
++                StmtExpr(ExprCall(_deallocMethod(manageeipdltype),
++                                  args=[ actorvar ])),
+                 StmtReturn()
+             ])
+             switchontype.addcase(CaseLabel(_protocolId(manageeipdltype).name),
+                                  case)
+ 
+         default = StmtBlock()
+         default.addstmts([ _runtimeAbort('unreached'), StmtReturn() ])
+         switchontype.addcase(DefaultLabel(), default)
+@@ -3452,18 +3454,19 @@ class _GenerateProtocolActorCode(ipdl.as
+                 actorvar))
+         ]
+ 
+     def failCtorIf(self, md, cond):
+         actorvar = md.actorDecl().var()
+         failif = StmtIf(cond)
+         failif.addifstmts(
+             self.unregisterActor(actorvar)
+-            + [ StmtExpr(ExprCall(_deallocMethod(md.decl.type.constructedType()), args=[actorvar])),
+-                StmtExpr(self.callRemoveActor(actorvar)),
++            + [ StmtExpr(self.callRemoveActor(
++                    actorvar,
++                    ipdltype=md.decl.type.constructedType())),
+                 StmtReturn(ExprLiteral.NULL),
+             ])
+         return [ failif ]
+ 
+     def genHelperCtor(self, md):
+         helperdecl = self.makeSendMethodDecl(md)
+         helperdecl.params = helperdecl.params[1:]
+         helper = MethodDefn(helperdecl)
+@@ -3532,19 +3535,20 @@ class _GenerateProtocolActorCode(ipdl.as
+         return method
+ 
+     def dtorPrologue(self, actorexpr):
+         return [ self.failIfNullActor(actorexpr), Whitespace.NL ]
+ 
+     def dtorEpilogue(self, md, actorexpr):
+         return (self.unregisterActor(actorexpr)
+                 + [ StmtExpr(self.callActorDestroy(actorexpr)),
+-                    StmtExpr(self.callRemoveActor(actorexpr)),
+                     StmtExpr(self.callDeallocSubtree(md, actorexpr)),
+-                    StmtExpr(self.callDeallocActor(md, actorexpr))
++                    StmtExpr(self.callRemoveActor(
++                        actorexpr,
++                        manager=self.protocol.managerVar(actorexpr)))
+                   ])
+ 
+     def genAsyncSendMethod(self, md):
+         method = MethodDefn(self.makeSendMethodDecl(md))
+         msgvar, stmts = self.makeMessage(md, errfnSend)
+         sendok, sendstmts = self.sendAsync(md, msgvar)
+         method.addstmts(stmts
+                         +[ Whitespace.NL ]
+@@ -3847,36 +3851,33 @@ class _GenerateProtocolActorCode(ipdl.as
+             _allocMethod(md.decl.type.constructedType()),
+             args=md.makeCxxArgs(params=1, retsems=retsems, retcallsems='out',
+                                 implicit=0))
+ 
+     def callActorDestroy(self, actorexpr, why=_DestroyReason.Deletion):
+         return ExprCall(ExprSelect(actorexpr, '->', 'DestroySubtree'),
+                         args=[ why ])
+ 
+-    def callRemoveActor(self, actorexpr):
+-        if not self.protocol.decl.type.isManaged():
++    def callRemoveActor(self, actorexpr, manager=None, ipdltype=None):
++        if ipdltype is None: ipdltype = self.protocol.decl.type
++
++        if not ipdltype.isManaged():
+             return Whitespace('// unmanaged protocol')
+ 
+-        return ExprCall(
+-            ExprSelect(self.protocol.managerVar(actorexpr),
+-                       '->', self.protocol.removeManageeMethod().name),
+-            args=[ _protocolId(self.protocol.decl.type),
+-                   actorexpr ])
++        removefunc = self.protocol.removeManageeMethod()
++        if manager is not None:
++            removefunc = ExprSelect(manager, '->', removefunc.name)
++
++        return ExprCall(removefunc,
++                        args=[ _protocolId(ipdltype),
++                               actorexpr ])
+ 
+     def callDeallocSubtree(self, md, actorexpr):
+         return ExprCall(ExprSelect(actorexpr, '->', 'DeallocSubtree'))
+ 
+-    def callDeallocActor(self, md, actorexpr):
+-        actor = md.decl.type.constructedType()
+-        return ExprCall(
+-            ExprSelect(ExprCall(self.protocol.managerMethod(actorexpr)), '->',
+-                       _deallocMethod(md.decl.type.constructedType()).name),
+-            args=[ actorexpr ])
+-
+     def invokeRecvHandler(self, md, implicit=1):
+         failif = StmtIf(ExprNot(
+             ExprCall(md.recvMethod(),
+                      args=md.makeCxxArgs(params=1,
+                                          retsems='in', retcallsems='out',
+                                          implicit=implicit))))
+         failif.addifstmt(StmtReturn(_Result.ValuError))
+         return [ failif ]
