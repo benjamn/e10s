@@ -1,8 +1,8 @@
 # HG changeset patch
 # User Ben Newman <bnewman@mozilla.com>
 # Date 1257540219 28800
-# Node ID a82312ef8ffd49051c380264ad70c05b5948c643
-# Parent  69674697dbce469745f1baaccb507cca27afd1e8
+# Node ID c631b16ad5f0cc808c0fc910a3c2bfa6e539f9da
+# Parent  705a3964ed70a7145837f2b2eeba9c0ce6d68bb8
 Bug 516522 - CPOW: Cross-Process (JavaScript) Object Wrapper.
 
 diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFrameLoader.idl
@@ -2747,11 +2747,11 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  using mozilla::MonitorAutoEnter;
  
  using mozilla::startup::sChildProcessType;
-@@ -493,48 +499,66 @@ XRE_ShutdownChildProcess()
-     MessageLoop* ioLoop = XRE_GetIOMessageLoop();
-     NS_ABORT_IF_FALSE(!!ioLoop, "Bad shutdown order");
+@@ -518,48 +524,66 @@ XRE_ShutdownChildProcess()
+ #endif
  
-     ioLoop->PostTask(FROM_HERE, new MessageLoop::QuitTask());
+ 
+ 
  }
  
  namespace {
@@ -2826,7 +2826,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
 diff --git a/xpcom/build/nsXULAppAPI.h b/xpcom/build/nsXULAppAPI.h
 --- a/xpcom/build/nsXULAppAPI.h
 +++ b/xpcom/build/nsXULAppAPI.h
-@@ -493,12 +493,18 @@ XRE_API(MessageLoop*,
+@@ -498,12 +498,18 @@ XRE_API(MessageLoop*,
  
  struct JSContext;
  struct JSString;

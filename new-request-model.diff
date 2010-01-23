@@ -1,3 +1,10 @@
+# HG changeset patch
+# User Ben Newman <bnewman@mozilla.com>
+# Date 1264040654 28800
+# Node ID bbb4154a3247858a00568096d0e5477b56739200
+# Parent  c631b16ad5f0cc808c0fc910a3c2bfa6e539f9da
+imported patch new-request-model.diff
+
 diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 --- a/dom/ipc/TabChild.cpp
 +++ b/dom/ipc/TabChild.cpp

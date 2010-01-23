@@ -1,8 +1,8 @@
 # HG changeset patch
 # User Jason Duell <jduell.mcbugs@gmail.com>
 # Date 1255763127 25200
-# Node ID 004e2f624dd4eb990c8177c56151d62d91090e73
-# Parent  4e0bbcc919a80d9312c7ac9764a9d684d71abcc5
+# Node ID 705a3964ed70a7145837f2b2eeba9c0ce6d68bb8
+# Parent  d65d36cfff9956a88c1dbba04e7661228262ad8a
 Add run_test_in_child() and do_load_child_test_harness() xpcshell functions.
 Add necko 'unit_ipc' test directory under e10s, plus simple HTTP test.
 

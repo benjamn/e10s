@@ -1,7 +1,14 @@
+# HG changeset patch
+# User Ben Newman <bnewman@mozilla.com>
+# Date 1264040654 28800
+# Node ID d65d36cfff9956a88c1dbba04e7661228262ad8a
+# Parent  8d0ad9632fd2ba1343051752d1ae0aa0c536ffe3
+imported patch tolerate-browserchrome-failure.diff
+
 diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
 --- a/docshell/base/nsDocShell.cpp
 +++ b/docshell/base/nsDocShell.cpp
-@@ -9911,26 +9911,28 @@ nsDocShell::EnsureScriptEnvironment()
+@@ -9854,26 +9854,28 @@ nsDocShell::EnsureScriptEnvironment()
      // re-enter this method, we'll infinitely loop...
      nsDebugAutoBoolTrueSetter boolSetter(&mInEnsureScriptEnv);
  #endif

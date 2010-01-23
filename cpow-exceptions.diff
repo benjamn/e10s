@@ -1,3 +1,10 @@
+# HG changeset patch
+# User Ben Newman <bnewman@mozilla.com>
+# Date 1264193577 28800
+# Node ID a1bfceab50385a1015b8ac27ae1419d866616590
+# Parent  98650290e6d93dee49154350fe47a7bcff2f5c82
+imported patch cpow-exceptions.diff
+
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
