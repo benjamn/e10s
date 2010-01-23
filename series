@@ -9,3 +9,4 @@ cjones/refactor2-rm-dealloc-540111.patch
 cjones/ipdl-tests-540111.patch
 cjones/cxx-test-540111.patch
 cjones/mm-540111.patch
+cpow-multi-managers.diff
