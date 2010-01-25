@@ -1,0 +1,348 @@
+diff --git a/ipc/ipdl/test/cxx/Makefile.in b/ipc/ipdl/test/cxx/Makefile.in
+--- a/ipc/ipdl/test/cxx/Makefile.in
++++ b/ipc/ipdl/test/cxx/Makefile.in
+@@ -61,16 +61,17 @@ EXPORT_LIBRARY = 1
+ IPDLTESTS = \
+   TestSanity  \
+   TestRPCErrorCleanup \
+   TestCrashCleanup \
+   TestSyncWakeup \
+   TestLatency \
+   TestRPCRaces \
+   TestRacyRPCReplies  \
++  TestBlockChild \
+   TestManyChildAllocs  \
+   TestDesc \
+   TestMultiMgrs  \
+   TestShmem \
+   TestShutdown \
+   TestArrays \
+   $(NULL)
+ 
+diff --git a/ipc/ipdl/test/cxx/PTestBlockChild.ipdl b/ipc/ipdl/test/cxx/PTestBlockChild.ipdl
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/cxx/PTestBlockChild.ipdl
+@@ -0,0 +1,51 @@
++namespace mozilla {
++namespace _ipdltest {
++
++rpc protocol PTestBlockChild {
++both:
++    rpc StackFrame();
++
++child:
++    async Poke1();
++    async Poke2();
++    async LastPoke();
++    async __delete__();
++
++parent:
++    async P1();
++    async P2();
++    async Done();
++
++state START:
++    // here we |BlockChild()| in the C++
++    send Poke1 goto CHILD_BLOCKED;
++
++state CHILD_BLOCKED:
++    call StackFrame goto CHILD_BLOCKED_RPC;
++
++state CHILD_BLOCKED_RPC:
++    answer StackFrame goto CHILD_BLOCKED_RPC_POKE;
++
++state CHILD_BLOCKED_RPC_POKE:
++    send Poke2 goto CHILD_STILL_BLOCKED;
++
++    // RPC stack frame gone.  child should still be blocked
++
++state CHILD_STILL_BLOCKED:
++    send LastPoke goto CHILD_FLUSH_QUEUE;
++
++    // here we |UnblockChild()| in the C++
++
++state CHILD_FLUSH_QUEUE:
++    recv P1 goto CHILD_FLUSH_QUEUE_P2;
++state CHILD_FLUSH_QUEUE_P2:
++    recv P2 goto CHILD_FLUSH_QUEUE_DONE;
++state CHILD_FLUSH_QUEUE_DONE:
++    recv Done goto DONE;
++
++state DONE:
++    send __delete__;
++};
++
++} // namespace _ipdltest
++} // namespace mozilla
+diff --git a/ipc/ipdl/test/cxx/TestBlockChild.cpp b/ipc/ipdl/test/cxx/TestBlockChild.cpp
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/cxx/TestBlockChild.cpp
+@@ -0,0 +1,149 @@
++#include "TestBlockChild.h"
++
++#include "IPDLUnitTests.h"      // fail etc.
++
++template<>
++struct RunnableMethodTraits<mozilla::_ipdltest::TestBlockChildChild>
++{
++    typedef mozilla::_ipdltest::TestBlockChildChild T;
++    static void RetainCallee(T* obj) { }
++    static void ReleaseCallee(T* obj) { }
++};
++
++
++namespace mozilla {
++namespace _ipdltest {
++
++//-----------------------------------------------------------------------------
++// parent
++
++void
++TestBlockChildParent::Main()
++{
++    BlockChildInLowerFrame();
++
++    if (!SendPoke1())
++        fail("couldn't poke the child");
++
++    if (!CallStackFrame())
++        fail("couldn't poke the child");
++
++    if (!SendLastPoke())
++        fail("couldn't poke the child");
++
++    if (!UnblockChild())
++        fail("can't UnblockChild()!");
++    mChildBlocked = false;
++}
++
++void
++TestBlockChildParent::BlockChildInLowerFrame()
++{
++    if (!BlockChild())
++        fail("can't BlockChild()!");
++    // child should be blocked and stay blocked after this returns
++    mChildBlocked = true;
++}
++
++bool
++TestBlockChildParent::AnswerStackFrame()
++{
++    if (!SendPoke2())
++        fail("couldn't poke the child");
++    return true;
++}
++
++bool
++TestBlockChildParent::RecvP1()
++{
++    if (mChildBlocked)
++        fail("child shouldn't been able to slip this past the blockade!");
++    mGotP1 = true;
++    return true;
++}
++
++bool
++TestBlockChildParent::RecvP2()
++{
++    if (mChildBlocked)
++        fail("child shouldn't been able to slip this past the blockade!");
++    mGotP2 = true;
++    return true;
++}
++
++bool
++TestBlockChildParent::RecvDone()
++{
++    if (mChildBlocked)
++        fail("child shouldn't been able to slip this past the blockade!");
++
++    // XXX IPDL transition checking makes this redundant, but never
++    // hurts to double-check, especially if we eventually turn off
++    // state checking in OPT builds
++    if (!mGotP1)
++        fail("should have received P1!");
++    if (!mGotP2)
++        fail("should have received P2!");
++
++    Close();
++
++    return true;
++}
++
++
++//-----------------------------------------------------------------------------
++// child
++
++bool
++TestBlockChildChild::RecvPoke1()
++{
++    MessageLoop::current()->PostTask(
++        FROM_HERE, NewRunnableMethod(this, &TestBlockChildChild::OnPoke1));
++    return true;
++}
++
++bool
++TestBlockChildChild::AnswerStackFrame()
++{
++    return CallStackFrame();
++}
++
++bool
++TestBlockChildChild::RecvPoke2()
++{
++    MessageLoop::current()->PostTask(
++        FROM_HERE, NewRunnableMethod(this, &TestBlockChildChild::OnPoke2));
++    return true;
++}
++
++bool
++TestBlockChildChild::RecvLastPoke()
++{
++    MessageLoop::current()->PostTask(
++        FROM_HERE, NewRunnableMethod(this, &TestBlockChildChild::OnLastPoke));
++    return true;
++}
++
++void
++TestBlockChildChild::OnPoke1()
++{
++    if (!SendP1())
++        fail("couldn't send P1");
++}
++
++void
++TestBlockChildChild::OnPoke2()
++{
++    if (!SendP2())
++        fail("couldn't send P2");
++}
++
++void
++TestBlockChildChild::OnLastPoke()
++{
++    if (!SendDone())
++        fail("couldn't send Done");
++}
++
++} // namespace _ipdltest
++} // namespace mozilla
+diff --git a/ipc/ipdl/test/cxx/TestBlockChild.h b/ipc/ipdl/test/cxx/TestBlockChild.h
+new file mode 100644
+--- /dev/null
++++ b/ipc/ipdl/test/cxx/TestBlockChild.h
+@@ -0,0 +1,96 @@
++#ifndef mozilla__ipdltest_TestBlockChild_h
++#define mozilla__ipdltest_TestBlockChild_h 1
++
++#include "mozilla/_ipdltest/IPDLUnitTests.h"
++
++#include "mozilla/_ipdltest/PTestBlockChildParent.h"
++#include "mozilla/_ipdltest/PTestBlockChildChild.h"
++
++namespace mozilla {
++namespace _ipdltest {
++
++
++class TestBlockChildParent :
++    public PTestBlockChildParent
++{
++public:
++    TestBlockChildParent() : mChildBlocked(false),
++                             mGotP1(false),
++                             mGotP2(false)
++    { }
++    virtual ~TestBlockChildParent() { }
++
++    void Main();
++
++protected:
++    NS_OVERRIDE
++    virtual bool AnswerStackFrame();
++
++    NS_OVERRIDE
++    virtual bool RecvP1();
++
++    NS_OVERRIDE
++    virtual bool RecvP2();
++
++    NS_OVERRIDE
++    virtual bool RecvDone();
++
++    NS_OVERRIDE
++    virtual void ActorDestroy(ActorDestroyReason why)
++    {
++        if (NormalShutdown != why)
++            fail("unexpected destruction!");  
++        passed("ok");
++        QuitParent();
++    }
++
++private:
++    void BlockChildInLowerFrame();
++
++    bool mChildBlocked;
++    bool mGotP1;
++    bool mGotP2;
++    bool mGotP3;
++};
++
++
++class TestBlockChildChild :
++    public PTestBlockChildChild
++{
++public:
++    TestBlockChildChild() { }
++    virtual ~TestBlockChildChild() { }
++
++protected:
++    NS_OVERRIDE
++    virtual bool RecvPoke1();
++
++    NS_OVERRIDE
++    virtual bool AnswerStackFrame();
++
++    NS_OVERRIDE
++    virtual bool RecvPoke2();
++
++    NS_OVERRIDE
++    virtual bool RecvLastPoke();
++
++    NS_OVERRIDE
++    virtual void ActorDestroy(ActorDestroyReason why)
++    {
++        if (NormalShutdown != why)
++            fail("unexpected destruction!");
++        QuitChild();
++    }
++
++private:
++    void OnPoke1();
++    void OnPoke2();
++    void OnLastPoke();
++};
++
++
++} // namespace _ipdltest
++} // namespace mozilla
++
++
++#endif // ifndef mozilla__ipdltest_TestBlockChild_h
+diff --git a/ipc/ipdl/test/cxx/ipdl.mk b/ipc/ipdl/test/cxx/ipdl.mk
+--- a/ipc/ipdl/test/cxx/ipdl.mk
++++ b/ipc/ipdl/test/cxx/ipdl.mk
+@@ -1,11 +1,12 @@
+ IPDLSRCS =					\
+   PTestArrays.ipdl				\
+   PTestArraysSub.ipdl				\
++  PTestBlockChild.ipdl				\
+   PTestCrashCleanup.ipdl			\
+   PTestDesc.ipdl				\
+   PTestDescSub.ipdl				\
+   PTestDescSubsub.ipdl				\
+   PTestLatency.ipdl				\
+   PTestManyChildAllocs.ipdl			\
+   PTestManyChildAllocsSub.ipdl			\
+   PTestMultiMgrs.ipdl				\

@@ -10,3 +10,7 @@ cjones/ipdl-tests-540111.patch
 cjones/cxx-test-540111.patch
 cjones/mm-540111.patch
 cpow-multi-managers.diff
+cjones/refactor-540886.patch
+cjones/test-540886.patch
+cjones/blockchild-540886.patch
+block-child.diff
