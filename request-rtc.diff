@@ -1,0 +1,214 @@
+diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
+--- a/dom/ipc/ContentProcessParent.cpp
++++ b/dom/ipc/ContentProcessParent.cpp
+@@ -74,16 +74,22 @@ ContentProcessParent::GetSingleton()
+             nsCOMPtr<nsIObserverService> obs =
+                 do_GetService("@mozilla.org/observer-service;1");
+             if (obs) {
+                 if (NS_SUCCEEDED(obs->AddObserver(parent, "xpcom-shutdown",
+                                                   PR_FALSE))) {
+                     gSingleton = parent;
+                 }
+             }
++            nsCOMPtr<nsIThreadInternal> threadInt =
++                do_QueryInterface(NS_GetCurrentThread());
++            if (threadInt) {
++                threadInt->GetObserver(getter_AddRefs(parent->mOldObserver));
++                threadInt->SetObserver(parent);
++            }
+         }
+     }
+     return gSingleton;
+ }
+ 
+ TabParent*
+ ContentProcessParent::CreateTab()
+ {
+@@ -99,32 +105,36 @@ ContentProcessParent::CreateTestShell()
+ bool
+ ContentProcessParent::DestroyTestShell(TestShellParent* aTestShell)
+ {
+     return PTestShellParent::Send__delete__(aTestShell);
+ }
+ 
+ ContentProcessParent::ContentProcessParent()
+     : mMonitor("ContentProcessParent::mMonitor")
++    , mRunToCompletionDepth(0)
++    , mOldObserver(nsnull)
+ {
+     NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+     mSubprocess = new GeckoChildProcessHost(GeckoProcessType_Content);
+     mSubprocess->AsyncLaunch();
+     Open(mSubprocess->GetChannel(), mSubprocess->GetChildProcessHandle());
+ }
+ 
+ ContentProcessParent::~ContentProcessParent()
+ {
+     NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+     NS_ASSERTION(gSingleton == this, "More than one singleton?!");
+     gSingletonDied = PR_TRUE;
+     gSingleton = nsnull;
+ }
+ 
+-NS_IMPL_ISUPPORTS1(ContentProcessParent, nsIObserver)
++NS_IMPL_THREADSAFE_ISUPPORTS2(ContentProcessParent,
++                              nsIObserver,
++                              nsIThreadObserver)
+ 
+ namespace {
+ void
+ DeleteSubprocess(GeckoChildProcessHost* aSubprocess)
+ {
+     delete aSubprocess;
+ }
+ }
+@@ -178,10 +188,68 @@ ContentProcessParent::AllocPNecko()
+ 
+ bool 
+ ContentProcessParent::DeallocPNecko(PNeckoParent* necko)
+ {
+     delete necko;
+     return true;
+ }
+ 
++bool
++ContentProcessParent::RequestRunToCompletion()
++{
++    if (!mRunToCompletionDepth &&
++        BlockChild()) {
++#ifdef DEBUG
++        printf("Running to completion...\n");
++#endif
++        mRunToCompletionDepth = 1;
++    }
++
++    return !!mRunToCompletionDepth;
++}
++
++/* void onDispatchedEvent (in nsIThreadInternal thread); */
++NS_IMETHODIMP
++ContentProcessParent::OnDispatchedEvent(nsIThreadInternal *thread)
++{
++    if (mOldObserver)
++        return mOldObserver->OnDispatchedEvent(thread);
++
++    return NS_OK;
++}
++
++/* void onProcessNextEvent (in nsIThreadInternal thread, in boolean mayWait, in unsigned long recursionDepth); */
++NS_IMETHODIMP
++ContentProcessParent::OnProcessNextEvent(nsIThreadInternal *thread,
++                                         PRBool mayWait,
++                                         PRUint32 recursionDepth)
++{
++    if (mRunToCompletionDepth)
++        ++mRunToCompletionDepth;
++
++    if (mOldObserver)
++        return mOldObserver->OnProcessNextEvent(thread, mayWait, recursionDepth);
++
++    return NS_OK;
++}
++
++/* void afterProcessNextEvent (in nsIThreadInternal thread, in unsigned long recursionDepth); */
++NS_IMETHODIMP
++ContentProcessParent::AfterProcessNextEvent(nsIThreadInternal *thread,
++                                            PRUint32 recursionDepth)
++{
++    if (mRunToCompletionDepth &&
++        !--mRunToCompletionDepth) {
++#ifdef DEBUG
++            printf("... ran to completion.\n");
++#endif
++            UnblockChild();
++    }
++
++    if (mOldObserver)
++        return mOldObserver->AfterProcessNextEvent(thread, recursionDepth);
++
++    return NS_OK;
++}
++    
+ } // namespace dom
+ } // namespace mozilla
+diff --git a/dom/ipc/ContentProcessParent.h b/dom/ipc/ContentProcessParent.h
+--- a/dom/ipc/ContentProcessParent.h
++++ b/dom/ipc/ContentProcessParent.h
+@@ -40,51 +40,56 @@
+ #define mozilla_dom_ContentProcessParent_h
+ 
+ #include "base/waitable_event_watcher.h"
+ 
+ #include "mozilla/dom/PContentProcessParent.h"
+ #include "mozilla/ipc/GeckoChildProcessHost.h"
+ 
+ #include "nsIObserver.h"
++#include "nsIThreadInternal.h"
+ #include "mozilla/Monitor.h"
+ 
+ namespace mozilla {
+ 
+ namespace ipc {
+ class TestShellParent;
+ }
+ 
+ namespace dom {
+ 
+ class TabParent;
+ 
+-class ContentProcessParent : public PContentProcessParent,
+-                             public nsIObserver
++class ContentProcessParent : public PContentProcessParent
++                           , public nsIObserver
++                           , public nsIThreadObserver
+ {
+ private:
+     typedef mozilla::ipc::GeckoChildProcessHost GeckoChildProcessHost;
+     typedef mozilla::ipc::TestShellParent TestShellParent;
+ 
+ public:
+     static ContentProcessParent* GetSingleton();
+ 
+ #if 0
+     // TODO: implement this somewhere!
+     static ContentProcessParent* FreeSingleton();
+ #endif
+ 
+     NS_DECL_ISUPPORTS
+     NS_DECL_NSIOBSERVER
++    NS_DECL_NSITHREADOBSERVER
+ 
+     TabParent* CreateTab();
+ 
+     TestShellParent* CreateTestShell();
+     bool DestroyTestShell(TestShellParent* aTestShell);
+ 
++    bool RequestRunToCompletion();
++
+ private:
+     static ContentProcessParent* gSingleton;
+ 
+     // Hide the raw constructor methods since we don't want client code
+     // using them.
+     using PContentProcessParent::SendPIFrameEmbeddingConstructor;
+     using PContentProcessParent::SendPTestShellConstructor;
+ 
+@@ -98,14 +103,18 @@ private:
+     virtual bool DeallocPTestShell(PTestShellParent* shell);
+ 
+     virtual PNeckoParent* AllocPNecko();
+     virtual bool DeallocPNecko(PNeckoParent* necko);
+ 
+     mozilla::Monitor mMonitor;
+ 
+     GeckoChildProcessHost* mSubprocess;
++
++    int mRunToCompletionDepth;
++    nsCOMPtr<nsIThreadObserver> mOldObserver;
++
+ };
+ 
+ } // namespace dom
+ } // namespace mozilla
+ 
+ #endif
