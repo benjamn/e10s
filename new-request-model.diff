@@ -8,7 +8,7 @@ imported patch new-request-model.diff
 diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 --- a/dom/ipc/TabChild.cpp
 +++ b/dom/ipc/TabChild.cpp
-@@ -319,16 +319,18 @@ TabChild::destroyWidget()
+@@ -320,16 +320,18 @@ TabChild::destroyWidget()
      if (baseWindow)
          baseWindow->Destroy();
  
@@ -773,16 +773,16 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 diff --git a/js/src/ipc/PContextWrapper.ipdl b/js/src/ipc/PContextWrapper.ipdl
 --- a/js/src/ipc/PContextWrapper.ipdl
 +++ b/js/src/ipc/PContextWrapper.ipdl
-@@ -6,11 +6,16 @@ namespace jsipc {
+@@ -7,11 +7,16 @@ namespace jsipc {
  
  rpc protocol PContextWrapper
  {
-     manager PContentProcess;
+     manager PIFrameEmbedding or PTestShell;
      manages PObjectWrapper;
  parent:
      __delete__();
      sync PObjectWrapper(bool makeGlobal);
-+ child:
++child:
 +    // Request depth managed locally, so only the first/last
 +    // BeginRequest/EndRequest calls cause IPC traffic.
 +    rpc BeginRequest();
