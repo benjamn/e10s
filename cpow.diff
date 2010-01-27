@@ -2683,7 +2683,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
  MAKEFILES_jsctypes="
    js/ctypes/Makefile
  "
-@@ -850,16 +854,17 @@ add_makefiles "
+@@ -846,16 +850,17 @@ add_makefiles "
    $MAKEFILES_db
    $MAKEFILES_dom
    $MAKEFILES_editor
@@ -2766,11 +2766,11 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  using mozilla::MonitorAutoEnter;
  
  using mozilla::startup::sChildProcessType;
-@@ -518,48 +524,66 @@ XRE_ShutdownChildProcess()
- #endif
+@@ -502,48 +508,66 @@ XRE_ShutdownChildProcess()
+     MessageLoop* ioLoop = XRE_GetIOMessageLoop();
+     NS_ABORT_IF_FALSE(!!ioLoop, "Bad shutdown order");
  
- 
- 
+     ioLoop->PostTask(FROM_HERE, new MessageLoop::QuitTask());
  }
  
  namespace {
