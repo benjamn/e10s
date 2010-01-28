@@ -1265,7 +1265,7 @@ new file mode 100644
 +
 +#include "nsTArray.h"
 +
-+using mozilla::jsipc::ObjectWrapperChild;
++using namespace mozilla::jsipc;
 +
 +ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
 +    : mObj(obj)
