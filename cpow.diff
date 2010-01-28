@@ -1851,7 +1851,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,608 @@
+@@ -0,0 +1,617 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +#include "mozilla/jsipc/ContextWrapperParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -1885,13 +1885,16 @@ new file mode 100644
 +                return JSVAL_TO_INT(v);
 +            return 0;
 +        }
++
 +        static uintN SetFlags(JSContext* cx, JSObject* obj, uintN flags) {
 +            uintN oldFlags = GetFlags(cx, obj);
 +            if (oldFlags != flags)
 +                JS_SetReservedSlot(cx, obj, sFlagsSlot, INT_TO_JSVAL(flags));
 +            return oldFlags;
 +        }
++
 +    public:
++
 +        AutoResolveFlag(JSContext* cx,
 +                        JSObject* obj
 +                        JS_GUARD_OBJECT_NOTIFIER_PARAM)
@@ -1899,11 +1902,18 @@ new file mode 100644
 +            , mObj(obj)
 +            , mOldFlags(SetFlags(cx, obj,
 +                                 GetFlags(cx, obj) | CPOW_FLAG_RESOLVING))
-+        { JS_GUARD_OBJECT_NOTIFIER_INIT; }
-+        ~AutoResolveFlag() { SetFlags(mContext, mObj, mOldFlags); }
++        {
++            JS_GUARD_OBJECT_NOTIFIER_INIT;
++        }
++
++        ~AutoResolveFlag() {
++            SetFlags(mContext, mObj, mOldFlags);
++        }
++
 +        static JSBool IsSet(JSContext* cx, JSObject* obj) {
 +            return GetFlags(cx, obj) & CPOW_FLAG_RESOLVING;
 +        }
++
 +    };
 +
 +}
@@ -2127,7 +2137,6 @@ new file mode 100644
 +    CPOW_LOG(("Calling CPOW_AddProperty (%s)...",
 +              JSVAL_TO_CSTR(cx, id)));
 +
-+    // Unwrap always has to come first!
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
 +        return JS_FALSE;

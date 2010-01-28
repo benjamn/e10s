@@ -555,21 +555,20 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -61,16 +61,64 @@ namespace {
-             : mManager(cwp)
-         {
-             JS_GUARD_OBJECT_NOTIFIER_INIT;
-             mManager->CallBeginRequest();
+@@ -78,16 +78,65 @@ namespace {
          }
-         ~AutoRequest() { mManager->CallEndRequest(); }
+ 
+         ~AutoRequest() {
+             mManager->CallEndRequest();
+         }
+ 
      };
  
-+    class AutoCheckOperation {
-+
++    class AutoCheckOperation
++    {
 +        JSContext* const mContext;
 +        ObjectWrapperParent* const mObjectWrapper;
 +        OperationStatus mStatus;
-+
 +        JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
 +
 +    public:
@@ -588,7 +587,9 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 +            mObjectWrapper->CheckOperation(mContext, &mStatus);
 +        }
 +
-+        OperationStatus* StatusPtr() { return &mStatus; }
++        OperationStatus* StatusPtr() {
++            return &mStatus;
++        }
 +
 +        bool Ok() {
 +            return (mStatus.type() == OperationStatus::TJSBool &&
@@ -620,7 +621,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
        JSCLASS_NEW_RESOLVE | JSCLASS_NEW_ENUMERATE | JSCLASS_IS_EXTENDED |
        JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
        _::CPOW_AddProperty,
-@@ -323,24 +371,24 @@ ObjectWrapperParent::CPOW_GetProperty(JS
+@@ -339,24 +388,24 @@ ObjectWrapperParent::CPOW_GetProperty(JS
      if (!self)
          return JS_FALSE;
  
@@ -648,7 +649,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
                                        jsval *vp)
  {
      CPOW_LOG(("Calling CPOW_SetProperty (%s)...",
-@@ -351,25 +399,25 @@ ObjectWrapperParent::CPOW_SetProperty(JS
+@@ -367,25 +416,25 @@ ObjectWrapperParent::CPOW_SetProperty(JS
          return JS_FALSE;
  
      nsString in_id;
@@ -678,7 +679,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
                                        jsval *vp)
  {
      CPOW_LOG(("Calling CPOW_DelProperty (%s)...",
-@@ -379,54 +427,54 @@ ObjectWrapperParent::CPOW_DelProperty(JS
+@@ -395,54 +444,54 @@ ObjectWrapperParent::CPOW_DelProperty(JS
      if (!self)
          return JS_FALSE;
  
@@ -743,7 +744,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
          return JS_DefinePropertyById(cx, obj, *idp, JSVAL_VOID, NULL, NULL,
                                       JSPROP_ENUMERATE);
      }
-@@ -485,23 +533,23 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
+@@ -501,23 +550,23 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
      if (!self)
          return JS_FALSE;
  
@@ -770,7 +771,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
          JS_ValueToId(cx, id, &interned_id)) {
          AutoResolveFlag arf(cx, *objp);
          JS_DefinePropertyById(cx, *objp, interned_id, JSVAL_VOID, NULL, NULL,
-@@ -556,24 +604,24 @@ ObjectWrapperParent::CPOW_Call(JSContext
+@@ -572,24 +621,24 @@ ObjectWrapperParent::CPOW_Call(JSContext
          receiver = manager->GetGlobalObjectWrapper();
      }
  
@@ -798,7 +799,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
                                      jsval *argv, jsval *rval)
  {
      CPOW_LOG(("Calling CPOW_Construct..."));
-@@ -583,24 +631,24 @@ ObjectWrapperParent::CPOW_Construct(JSCo
+@@ -599,24 +648,24 @@ ObjectWrapperParent::CPOW_Construct(JSCo
      if (!constructor)
          return JS_FALSE;
  
@@ -826,7 +827,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
                                        JSBool *bp)
  {
      CPOW_LOG(("Calling CPOW_HasInstance..."));
-@@ -611,23 +659,23 @@ ObjectWrapperParent::CPOW_HasInstance(JS
+@@ -627,23 +676,23 @@ ObjectWrapperParent::CPOW_HasInstance(JS
      if (!self)
          return JS_FALSE;
  
