@@ -8,8 +8,17 @@ imported patch cpow-exceptions.diff
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -11,47 +11,103 @@ namespace mozilla {
- namespace jsipc {
+@@ -2,53 +2,109 @@
+ #include "mozilla/jsipc/ObjectWrapperChild.h"
+ #include "mozilla/jsipc/CPOWTypes.h"
+ 
+ #include "nsAutoPtr.h"
+ #include "nsTArray.h"
+ #include "nsContentUtils.h"
+ #include "nsIJSContextStack.h"
+ 
+-using mozilla::jsipc::ObjectWrapperChild;
++using namespace mozilla::jsipc;
  
  namespace {
  
@@ -46,10 +55,10 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                               "Failed to pop our context");
              }
 +            JS_SetOptions(mContext, mSavedOptions);
-+        }
-+
-+    };
-+
+         }
+ 
+     };
+ 
 +    class AutoCheckOperation {
 +
 +        ObjectWrapperChild* const mObjectWrapper;
@@ -77,12 +86,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +        bool Ok() {
 +            return (mStatus->type() == OperationStatus::TJSBool &&
 +                    mStatus->get_JSBool());
-         }
- 
-     };
- 
- }
--    
++        }
++
++    };
++
++}
 +
 +void
 +ObjectWrapperChild::CheckOperation(OperationStatus* status)
@@ -103,17 +111,15 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +        *status = exception;
 +        JS_ClearPendingException(cx);
 +    }
-+}
-+
+ }
+ 
  ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
      : mObj(obj)
  {
      JSAutoRequest request(cx);
      JS_AddNamedRoot(cx, (void*)&mObj,
                      "mozilla::jsipc::ObjectWrapperChild-rooted JSObject*");
- }
- 
-@@ -200,16 +256,17 @@ jsid_from_nsString(JSContext* cx, const 
+@@ -199,16 +255,17 @@ jsid_from_nsString(JSContext* cx, const 
  // The general schema for ObjectWrapperChild::Answer* methods:
  bool
  ObjectWrapperChild::AnswerSomething(/* in-parameters */
@@ -131,7 +137,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  // There's an important subtlety here: though a local JS operation may
  // fail, leaving out-parameters uninitialized, we must initialize all
  // out-parameters when reporting success (returning true) to the IPC
-@@ -228,79 +285,77 @@ ObjectWrapperChild::AnswerAddProperty(co
+@@ -227,79 +284,77 @@ ObjectWrapperChild::AnswerAddProperty(co
          return false;
      
      JS_DefinePropertyById(cx, mObj, interned_id, JSVAL_VOID, NULL, NULL, 0);
@@ -223,7 +229,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  static void
  CPOW_NewEnumerateState_Finalize(JSContext* cx, JSObject* state)
  {
-@@ -319,23 +374,23 @@ static const JSClass sCPOW_NewEnumerateS
+@@ -318,23 +373,23 @@ static const JSClass sCPOW_NewEnumerateS
      JS_PropertyStub,  JS_PropertyStub,
      JS_EnumerateStub, JS_ResolveStub,
      JS_ConvertStub,   CPOW_NewEnumerateState_Finalize,
@@ -249,7 +255,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      
      for (JSObject* proto = mObj;
           proto;
-@@ -349,63 +404,60 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+@@ -348,63 +403,60 @@ ObjectWrapperChild::AnswerNewEnumerateIn
      }
  
      JSIdArray* ids = JS_Enumerate(cx, state);
@@ -323,7 +329,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      JSObject* state;
      JSContext* cx = Manager()->GetContext();
-@@ -422,85 +474,86 @@ ObjectWrapperChild::AnswerIterator(/* no
+@@ -421,85 +473,86 @@ ObjectWrapperChild::AnswerIterator(/* no
      AutoContextPusher acp(cx);
      JSObject* iterObj = JS_NewPropertyIterator(cx, mObj);
      *iterator = Manager()->GetOrCreateWrapper(iterObj);
@@ -424,7 +430,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
          if (JS_GetProperty(cx, mObj, "prototype", &pval) &&
              JSVAL_IS_OBJECT(pval))
          {
-@@ -508,34 +561,35 @@ ObjectWrapperChild::AnswerConstruct(cons
+@@ -507,32 +560,33 @@ ObjectWrapperChild::AnswerConstruct(cons
              clasp = JS_GetClass(cx, pobj);
          }
      }
@@ -461,8 +467,6 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +    *status = JS_HasInstance(cx, mObj, candidate, bp);
      return true;
  }
- 
- }}
 diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 --- a/js/src/ipc/ObjectWrapperChild.h
 +++ b/js/src/ipc/ObjectWrapperChild.h

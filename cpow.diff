@@ -1258,15 +1258,14 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,500 @@
+@@ -0,0 +1,497 @@
 +#include "mozilla/jsipc/ContextWrapperChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
 +
 +#include "nsTArray.h"
 +
-+namespace mozilla {
-+namespace jsipc {
++using mozilla::jsipc::ObjectWrapperChild;
 +
 +ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
 +    : mObj(obj)
@@ -1757,8 +1756,6 @@ new file mode 100644
 +    *ok = JS_HasInstance(cx, mObj, candidate, bp);
 +    return true;
 +}
-+
-+}}
 diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
@@ -1851,7 +1848,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,617 @@
+@@ -0,0 +1,614 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +#include "mozilla/jsipc/ContextWrapperParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -1860,8 +1857,7 @@ new file mode 100644
 +#include "jsfun.h"
 +#include "jsutil.h"
 +
-+namespace mozilla {
-+namespace jsipc {
++using namespace mozilla::jsipc;
 +
 +namespace {
 +
@@ -2467,8 +2463,6 @@ new file mode 100644
 +    
 +    return JS_TRUE;
 +}
-+
-+}}
 diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null

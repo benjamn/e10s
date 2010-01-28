@@ -150,7 +150,7 @@ diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -1,17 +1,57 @@
+@@ -1,16 +1,56 @@
  #include "mozilla/jsipc/ContextWrapperChild.h"
  #include "mozilla/jsipc/ObjectWrapperChild.h"
  #include "mozilla/jsipc/CPOWTypes.h"
@@ -160,8 +160,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +#include "nsContentUtils.h"
 +#include "nsIJSContextStack.h"
  
- namespace mozilla {
- namespace jsipc {
+ using mozilla::jsipc::ObjectWrapperChild;
  
 +namespace {
 +
@@ -199,7 +198,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +    };
 +
 +}
-+    
++
  ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
      : mObj(obj)
  {
@@ -208,7 +207,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                      "mozilla::jsipc::ObjectWrapperChild-rooted JSObject*");
  }
  
-@@ -158,17 +198,18 @@ jsid_from_nsString(JSContext* cx, const 
+@@ -157,17 +197,18 @@ jsid_from_nsString(JSContext* cx, const 
  
  #if 0
  // The general schema for ObjectWrapperChild::Answer* methods:
@@ -228,7 +227,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  // There's an important subtlety here: though a local JS operation may
  // fail, leaving out-parameters uninitialized, we must initialize all
  // out-parameters when reporting success (returning true) to the IPC
-@@ -176,17 +217,17 @@ ObjectWrapperChild::AnswerSomething(/* i
+@@ -175,17 +216,17 @@ ObjectWrapperChild::AnswerSomething(/* i
  #endif
  
  bool
@@ -247,7 +246,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      return true;
  }
  
-@@ -195,17 +236,17 @@ ObjectWrapperChild::AnswerGetProperty(co
+@@ -194,17 +235,17 @@ ObjectWrapperChild::AnswerGetProperty(co
                                        JSBool* ok, JSVariant* vp)
  {
      jsid interned_id;
@@ -266,7 +265,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      // Since we fully expect this call to jsval_to_JSVariant to return
      // true, we can't just leave vp uninitialized when JS_GetPropertyById
-@@ -221,17 +262,17 @@ ObjectWrapperChild::AnswerSetProperty(co
+@@ -220,17 +261,17 @@ ObjectWrapperChild::AnswerSetProperty(co
  {
      jsid interned_id;
      jsval val;
@@ -285,7 +284,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      *ok = JS_SetPropertyById(cx, mObj, interned_id, &val);
  
      return jsval_to_JSVariant(cx, *ok ? val : JSVAL_VOID, vp);
-@@ -242,17 +283,17 @@ ObjectWrapperChild::AnswerDelProperty(co
+@@ -241,17 +282,17 @@ ObjectWrapperChild::AnswerDelProperty(co
                                        JSBool* ok, JSVariant* vp)
  {
      jsid interned_id;
@@ -304,7 +303,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      return jsval_to_JSVariant(cx, *ok ? val : JSVAL_VOID, vp);
  }
-@@ -284,17 +325,17 @@ static const JSClass sCPOW_NewEnumerateS
+@@ -283,17 +324,17 @@ static const JSClass sCPOW_NewEnumerateS
  bool
  ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
                                             JSBool* ok, JSVariant* statep, int* idp)
@@ -323,7 +322,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      
      for (JSObject* proto = mObj;
           proto;
-@@ -331,17 +372,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
+@@ -330,17 +371,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
      JSIdArray* ids;
      JSString* str;
  
@@ -342,7 +341,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
          return false;
  
      int i = JSVAL_TO_INT(v);
-@@ -363,43 +404,43 @@ ObjectWrapperChild::AnswerNewEnumerateNe
+@@ -362,43 +403,43 @@ ObjectWrapperChild::AnswerNewEnumerateNe
      return true;
  }
      
@@ -389,7 +388,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                NS_ConvertUTF16toUTF8(id).get()));
  
      JSPropertyDescriptor desc;
-@@ -415,29 +456,29 @@ ObjectWrapperChild::AnswerNewResolve(con
+@@ -414,29 +455,29 @@ ObjectWrapperChild::AnswerNewResolve(con
  }
  
  bool
@@ -422,7 +421,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      jsval rv, jsargs[argv.Length()];
      for (PRUint32 i = 0; i < argv.Length(); ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
-@@ -449,17 +490,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+@@ -448,17 +489,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
      return jsval_to_JSVariant(cx, *ok ? rv : JSVAL_VOID, rval);
  }
  
@@ -441,7 +440,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
          if (JS_GetProperty(cx, mObj, "prototype", &pval) &&
              JSVAL_IS_OBJECT(pval))
          {
-@@ -485,16 +526,16 @@ ObjectWrapperChild::AnswerConstruct(cons
+@@ -484,14 +525,14 @@ ObjectWrapperChild::AnswerConstruct(cons
  }
  
  bool
@@ -457,8 +456,6 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      *ok = JS_HasInstance(cx, mObj, candidate, bp);
      return true;
  }
- 
- }}
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
