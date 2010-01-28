@@ -1,7 +1,7 @@
 diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 --- a/dom/ipc/ContentProcessParent.cpp
 +++ b/dom/ipc/ContentProcessParent.cpp
-@@ -74,16 +74,22 @@ ContentProcessParent::GetSingleton()
+@@ -74,21 +74,46 @@ ContentProcessParent::GetSingleton()
              nsCOMPtr<nsIObserverService> obs =
                  do_GetService("@mozilla.org/observer-service;1");
              if (obs) {
@@ -10,8 +10,8 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
                      gSingleton = parent;
                  }
              }
-+            nsCOMPtr<nsIThreadInternal> threadInt =
-+                do_QueryInterface(NS_GetCurrentThread());
++            nsCOMPtr<nsIThreadInternal>
++                threadInt(do_QueryInterface(NS_GetCurrentThread()));
 +            if (threadInt) {
 +                threadInt->GetObserver(getter_AddRefs(parent->mOldObserver));
 +                threadInt->SetObserver(parent);
@@ -21,10 +21,34 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
      return gSingleton;
  }
  
++void
++ContentProcessParent::ActorDestroy(ActorDestroyReason why)
++{
++    nsCOMPtr<nsIThreadObserver>
++        kungFuDeathGrip(static_cast<nsIThreadObserver*>(this));
++    nsCOMPtr<nsIObserverService>
++        obs(do_GetService("@mozilla.org/observer-service;1"));
++    if (obs)
++        obs->RemoveObserver(static_cast<nsIObserver*>(this), "xpcom-shutdown");
++    nsCOMPtr<nsIThreadInternal>
++        threadInt(do_QueryInterface(NS_GetCurrentThread()));
++    if (threadInt)
++        threadInt->SetObserver(mOldObserver);
++    if (mRunToCompletionDepth) {
++        mRunToCompletionDepth = 0;
++        UnblockChild();
++    }
++}
++
  TabParent*
  ContentProcessParent::CreateTab()
  {
-@@ -99,32 +105,36 @@ ContentProcessParent::CreateTestShell()
+   return static_cast<TabParent*>(SendPIFrameEmbeddingConstructor());
+ }
+ 
+ TestShellParent*
+ ContentProcessParent::CreateTestShell()
+@@ -99,32 +124,35 @@ ContentProcessParent::CreateTestShell()
  bool
  ContentProcessParent::DestroyTestShell(TestShellParent* aTestShell)
  {
@@ -34,7 +58,6 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
  ContentProcessParent::ContentProcessParent()
      : mMonitor("ContentProcessParent::mMonitor")
 +    , mRunToCompletionDepth(0)
-+    , mOldObserver(nsnull)
  {
      NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
      mSubprocess = new GeckoChildProcessHost(GeckoProcessType_Content);
@@ -62,7 +85,7 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
      delete aSubprocess;
  }
  }
-@@ -178,10 +188,68 @@ ContentProcessParent::AllocPNecko()
+@@ -178,10 +206,68 @@ ContentProcessParent::AllocPNecko()
  
  bool 
  ContentProcessParent::DeallocPNecko(PNeckoParent* necko)
@@ -134,7 +157,7 @@ diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
 diff --git a/dom/ipc/ContentProcessParent.h b/dom/ipc/ContentProcessParent.h
 --- a/dom/ipc/ContentProcessParent.h
 +++ b/dom/ipc/ContentProcessParent.h
-@@ -40,51 +40,56 @@
+@@ -40,51 +40,59 @@
  #define mozilla_dom_ContentProcessParent_h
  
  #include "base/waitable_event_watcher.h"
@@ -185,6 +208,9 @@ diff --git a/dom/ipc/ContentProcessParent.h b/dom/ipc/ContentProcessParent.h
  
 +    bool RequestRunToCompletion();
 +
++protected:
++    virtual void ActorDestroy(ActorDestroyReason why);
++
  private:
      static ContentProcessParent* gSingleton;
  
@@ -193,7 +219,7 @@ diff --git a/dom/ipc/ContentProcessParent.h b/dom/ipc/ContentProcessParent.h
      using PContentProcessParent::SendPIFrameEmbeddingConstructor;
      using PContentProcessParent::SendPTestShellConstructor;
  
-@@ -98,14 +103,18 @@ private:
+@@ -98,14 +106,18 @@ private:
      virtual bool DeallocPTestShell(PTestShellParent* shell);
  
      virtual PNeckoParent* AllocPNecko();
