@@ -311,44 +311,6 @@ diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
      NS_OVERRIDE
      virtual void ActorDestroy(ActorDestroyReason why);
  
-diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
---- a/dom/ipc/ContentProcessParent.cpp
-+++ b/dom/ipc/ContentProcessParent.cpp
-@@ -48,16 +48,17 @@
- 
- #include "nsAutoPtr.h"
- #include "nsCOMPtr.h"
- #include "nsServiceManagerUtils.h"
- #include "nsThreadUtils.h"
- 
- using namespace mozilla::ipc;
- using namespace mozilla::net;
-+    
- using mozilla::MonitorAutoEnter;
- 
- namespace {
- PRBool gSingletonDied = PR_FALSE;
- }
- 
- namespace mozilla {
- namespace dom {
-diff --git a/dom/ipc/PContentProcess.ipdl b/dom/ipc/PContentProcess.ipdl
---- a/dom/ipc/PContentProcess.ipdl
-+++ b/dom/ipc/PContentProcess.ipdl
-@@ -53,12 +53,13 @@ rpc protocol PContentProcess
- 
- child:
-     PIFrameEmbedding();
- 
-     PTestShell();
- 
- parent:
-     PNecko();
-+
- };
- 
- }
- }
 diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
 --- a/dom/ipc/PIFrameEmbedding.ipdl
 +++ b/dom/ipc/PIFrameEmbedding.ipdl
@@ -449,7 +411,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +
 +    SendPContextWrapperConstructor()
 +        ->SendPObjectWrapperConstructor(true);
-+    
++
      return true;
  }
  
