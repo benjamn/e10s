@@ -4,5 +4,3 @@ cpow.diff
 new-request-model.diff
 test-cpow.diff
 cpow-exceptions.diff
-request-rtc.diff
-use-request-rtc.diff
