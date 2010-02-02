@@ -5,28 +5,6 @@
 # Parent  c631b16ad5f0cc808c0fc910a3c2bfa6e539f9da
 imported patch new-request-model.diff
 
-diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
---- a/dom/ipc/TabChild.cpp
-+++ b/dom/ipc/TabChild.cpp
-@@ -320,16 +320,18 @@ TabChild::destroyWidget()
-     if (baseWindow)
-         baseWindow->Destroy();
- 
-     return true;
- }
- 
- TabChild::~TabChild()
- {
-+    // TODO Destroy our PContextWrapperChild, too!
-+    // TODONT Just wait for cjones to address bug 540111.
-     destroyWidget();
-     nsCOMPtr<nsIWebBrowser> webBrowser = do_QueryInterface(mWebNav);
-     if (webBrowser) {
-       webBrowser->SetContainerWindow(nsnull);
-     }
- }
- 
- bool
 diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 --- a/dom/ipc/TabParent.cpp
 +++ b/dom/ipc/TabParent.cpp
@@ -135,47 +113,6 @@ diff --git a/ipc/testshell/TestShellParent.cpp b/ipc/testshell/TestShellParent.c
      delete actor;
      return true;
  }
-diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
---- a/js/src/ipc/ContextWrapperChild.h
-+++ b/js/src/ipc/ContextWrapperChild.h
-@@ -34,17 +34,17 @@ public:
-             mResidentObjectTable.Put(obj, SendPObjectWrapperConstructor(AllocPObjectWrapper(obj),
-                                                                         makeGlobal));
-         return wrapper;
-     }
-     
-     PObjectWrapperChild* GetOrCreateGlobalWrapper() {
-         return GetOrCreateWrapper(JS_GetGlobalObject(mContext), true);
-     }
--    
-+
- protected:
- 
-     PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
-         return new ObjectWrapperChild(mContext, obj);
-     }
-     
-     PObjectWrapperChild* AllocPObjectWrapper(const bool&) {
-         return AllocPObjectWrapper(JS_GetGlobalObject(mContext));
-@@ -52,17 +52,17 @@ protected:
- 
-     bool DeallocPObjectWrapper(PObjectWrapperChild* actor) {
-         ObjectWrapperChild* owc = static_cast<ObjectWrapperChild*>(actor);
-         mResidentObjectTable.Remove(owc->GetJSObject());
-         return true;
-     }
- 
- private:
--    
-+
-     JSContext* const mContext;
- 
-     nsClassHashtable<nsPtrHashKey<JSObject>,
-                      PObjectWrapperChild> mResidentObjectTable;
- 
- };
- 
- }}
 diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent.h
 --- a/js/src/ipc/ContextWrapperParent.h
 +++ b/js/src/ipc/ContextWrapperParent.h
@@ -656,49 +593,25 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  JSBool
  ObjectWrapperParent::NewEnumerateInit(JSContext* cx, jsval* statep, jsid* idp)
  {
-@@ -424,30 +435,35 @@ ObjectWrapperParent::NewEnumerateDestroy
- 
- /*static*/ JSBool
- ObjectWrapperParent::CPOW_NewEnumerate(JSContext *cx, JSObject *obj,
-                                        JSIterateOp enum_op, jsval *statep,
-                                        jsid *idp)
- {
+@@ -430,16 +441,17 @@ ObjectWrapperParent::CPOW_NewEnumerate(J
      CPOW_LOG(("Calling CPOW_NewEnumerate..."));
  
-+    JSBool ok = JS_FALSE;
-+
      ObjectWrapperParent* self = Unwrap(cx, obj);
      if (!self)
--        return JS_FALSE;    
-+        return ok;
+         return JS_FALSE;
  
      switch (enum_op) {
      case JSENUMERATE_INIT:
--        return self->NewEnumerateInit(cx, statep, idp);
 +        self->Manager()->RequestRunToCompletion();
-+        ok = self->NewEnumerateInit(cx, statep, idp);
-+        break;
+         return self->NewEnumerateInit(cx, statep, idp);
      case JSENUMERATE_NEXT:
--        return self->NewEnumerateNext(cx, statep, idp);
-+        ok = self->NewEnumerateNext(cx, statep, idp);
-+        break;
+         return self->NewEnumerateNext(cx, statep, idp);
      case JSENUMERATE_DESTROY:
--        return self->NewEnumerateDestroy(cx, *statep);
-+        ok = self->NewEnumerateDestroy(cx, *statep);
-+        break;
+         return self->NewEnumerateDestroy(cx, *statep);
      }
--
--    return JS_FALSE;
-+    return ok;
- }
  
- /*static*/ JSBool
- ObjectWrapperParent::CPOW_NewResolve(JSContext *cx, JSObject *obj, jsval id,
-                                      uintN flags, JSObject **objp)
- {
-     CPOW_LOG(("Calling CPOW_NewResolve (%s)...",
-               JSVAL_TO_CSTR(cx, id)));
-@@ -459,17 +475,18 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
+     return JS_FALSE;
+@@ -459,17 +471,18 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
      nsString in_id;
  
      if (!jsval_to_nsString(cx, id, &in_id))
@@ -718,7 +631,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      jsid interned_id;
      if (*objp &&
          JS_ValueToId(cx, id, &interned_id)) {
-@@ -529,17 +546,18 @@ ObjectWrapperParent::CPOW_Call(JSContext
+@@ -529,17 +542,18 @@ ObjectWrapperParent::CPOW_Call(JSContext
      nsTArray<JSVariant> in_argv(argc);
      for (uintN i = 0; i < argc; i++)
          if (!jsval_to_JSVariant(cx, argv[i], in_argv.AppendElement()))
@@ -738,7 +651,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  /*static*/ JSBool
  ObjectWrapperParent::CPOW_Construct(JSContext *cx, JSObject *obj, uintN argc,
                                      jsval *argv, jsval *rval)
-@@ -554,17 +572,18 @@ ObjectWrapperParent::CPOW_Construct(JSCo
+@@ -554,17 +568,18 @@ ObjectWrapperParent::CPOW_Construct(JSCo
      nsTArray<JSVariant> in_argv(argc);
      for (uintN i = 0; i < argc; i++)
          if (!jsval_to_JSVariant(cx, argv[i], in_argv.AppendElement()))
@@ -758,7 +671,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  /*static*/ JSBool
  ObjectWrapperParent::CPOW_HasInstance(JSContext *cx, JSObject *obj, jsval v,
                                        JSBool *bp)
-@@ -579,17 +598,18 @@ ObjectWrapperParent::CPOW_HasInstance(JS
+@@ -579,17 +594,18 @@ ObjectWrapperParent::CPOW_HasInstance(JS
  
      JSVariant in_v;
  

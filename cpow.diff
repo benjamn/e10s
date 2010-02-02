@@ -1116,7 +1116,7 @@ new file mode 100644
 +    PObjectWrapperChild* GetOrCreateGlobalWrapper() {
 +        return GetOrCreateWrapper(JS_GetGlobalObject(mContext), true);
 +    }
-+    
++
 +protected:
 +
 +    PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
@@ -1134,7 +1134,7 @@ new file mode 100644
 +    }
 +
 +private:
-+    
++
 +    JSContext* const mContext;
 +
 +    nsClassHashtable<nsPtrHashKey<JSObject>,
@@ -2282,7 +2282,7 @@ new file mode 100644
 +
 +    ObjectWrapperParent* self = Unwrap(cx, obj);
 +    if (!self)
-+        return JS_FALSE;    
++        return JS_FALSE;
 +
 +    switch (enum_op) {
 +    case JSENUMERATE_INIT:
@@ -2868,7 +2868,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  using mozilla::MonitorAutoEnter;
  
  using mozilla::startup::sChildProcessType;
-@@ -502,48 +508,60 @@ XRE_ShutdownChildProcess()
+@@ -505,48 +511,60 @@ XRE_ShutdownChildProcess()
      MessageLoop* ioLoop = XRE_GetIOMessageLoop();
      NS_ABORT_IF_FALSE(!!ioLoop, "Bad shutdown order");
  
