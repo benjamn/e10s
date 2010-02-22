@@ -1,0 +1,62 @@
+diff --git a/js/src/ipc/tests/adhoc/test.xul b/js/src/ipc/tests/adhoc/test.xul
+--- a/js/src/ipc/tests/adhoc/test.xul
++++ b/js/src/ipc/tests/adhoc/test.xul
+@@ -51,34 +51,53 @@
+           child.foo.pitch(ball);
+           alert("shouldn't reach this point");
+         } catch (x) {
+           alert("ball === x? " + (ball === x));
+         }
+       }
+     }
+ 
++    function getCPOW() {
++      if (!getCPOW.cpow) {
++        var page = document.getElementById("page"),
++            owner = page.QueryInterface(Components.interfaces.nsIFrameLoaderOwner);
++        getCPOW.cpow = owner.crossProcessObjectWrapper;
++        alert("got fresh CPOW");
++      }
++      return getCPOW.cpow;
++    }
++    
+     function test_cpow() {
+-      var page = document.getElementById("page"),
+-          owner = page.QueryInterface(Components.interfaces.nsIFrameLoaderOwner),
+-          child = owner.crossProcessObjectWrapper;
+-
++      var child = getCPOW();
+       cpow_tests.construct(child.foo);
+       cpow_tests.resolve(child.location, "href hostname");
+       cpow_tests.iterate(child.location);
+       cpow_tests.iterate(child.foo);
+       cpow_tests.funcalls(child.foo);
++      cpow_tests.navigate(child);
+       cpow_tests.equality(child);
+       cpow_tests.exceptions(child);
+-    
++      setTimeout(function() {
++        alert("going back");
++        child.history.back();
++      }, 3000);
++    }
++
++    function show_location() {
++      var child = getCPOW();
++      child.location += "#fragment";
++      alert(child.location.href);
++      alert(child.document.documentURI);
+     }
+   </script>
+ 
+   <toolbar id="controls">
+     <toolbarbutton onclick="test_cpow()" label="Run tests."/>
++    <toolbarbutton onclick="show_location()" label="Show location."/>
+   </toolbar>
+ 
+   <browser remote="true" width="200" height="200"
+            type="content"
+            src="child.html"
+            id="page" />
+ 
+ </window>
