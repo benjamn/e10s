@@ -8,14 +8,14 @@ imported patch new-request-model.diff
 diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 --- a/dom/ipc/TabParent.cpp
 +++ b/dom/ipc/TabParent.cpp
-@@ -35,31 +35,33 @@
+@@ -34,30 +34,32 @@
+  * the provisions above, a recipient may use your version of this file under
   * the terms of any one of the MPL, the GPL or the LGPL.
   *
   * ***** END LICENSE BLOCK ***** */
  
  #include "TabParent.h"
  
- #include "mozilla/ipc/GeckoThread.h"
  #include "mozilla/ipc/DocumentRendererParent.h"
 +#include "mozilla/dom/ContentProcessParent.h"
  #include "mozilla/jsipc/ContextWrapperParent.h"
@@ -31,7 +31,6 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
  #include "nsIPrivateDOMEvent.h"
  #include "nsFrameLoader.h"
  
- using mozilla::ipc::BrowserProcessSubThread;
  using mozilla::ipc::DocumentRendererParent;
 +using mozilla::dom::ContentProcessParent;
  using mozilla::jsipc::PContextWrapperParent;
@@ -42,7 +41,7 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
  
  TabParent::TabParent()
  {
-@@ -158,17 +160,19 @@ TabParent::DeallocPDocumentRenderer(PDoc
+@@ -156,17 +158,19 @@ TabParent::DeallocPDocumentRenderer(PDoc
  {
      delete actor;
      return true;
