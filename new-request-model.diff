@@ -5,6 +5,35 @@
 # Parent  c631b16ad5f0cc808c0fc910a3c2bfa6e539f9da
 imported patch new-request-model.diff
 
+diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader.cpp
+--- a/content/base/src/nsFrameLoader.cpp
++++ b/content/base/src/nsFrameLoader.cpp
+@@ -1545,20 +1545,21 @@ nsFrameLoader::GetCrossProcessObjectWrap
+    nsIXPConnect* xpc;
+    nsIThreadJSContextStack* stack;
+    JSContext* cx;
+    JSObject* global;
+  
+    if ((xpc = nsContentUtils::XPConnect()) &&
+        (stack = nsContentUtils::ThreadJSContextStack()) &&
+        NS_SUCCEEDED(stack->Peek(&cx)) && cx &&
+-       mChildProcess->GetGlobalJSObject(cx, &global))
+-    return xpc->JSToVariant(cx, OBJECT_TO_JSVAL(global), cpow);
+-  
+-  return NS_ERROR_NOT_AVAILABLE;
++       mChildProcess->GetGlobalJSObject(cx, &global)) {
++     return xpc->JSToVariant(cx, OBJECT_TO_JSVAL(global), cpow);
++   }
++
++   return NS_ERROR_NOT_AVAILABLE;
+ }
+ 
+ nsresult
+ nsFrameLoader::CreateStaticClone(nsIFrameLoader* aDest)
+ {
+   nsFrameLoader* dest = static_cast<nsFrameLoader*>(aDest);
+   dest->MaybeCreateDocShell();
+   NS_ENSURE_STATE(dest->mDocShell);
 diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 --- a/dom/ipc/TabParent.cpp
 +++ b/dom/ipc/TabParent.cpp
@@ -230,11 +259,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      : mObj(obj)
  {
      JSAutoRequest request(cx);
-     JS_AddNamedRoot(cx, (void*)&mObj,
-                     "mozilla::jsipc::ObjectWrapperChild-rooted JSObject*");
- }
- 
-@@ -157,17 +200,18 @@ jsid_from_nsString(JSContext* cx, const 
+ #ifdef DEBUG
+     bool added =
+ #endif
+         JS_AddNamedRoot(cx, (void*)&mObj,
+@@ -163,17 +206,18 @@ jsid_from_nsString(JSContext* cx, const 
  
  #if 0
  // The general schema for ObjectWrapperChild::Answer* methods:
@@ -254,13 +283,13 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  // There's an important subtlety here: though a local JS operation may
  // fail, leaving out-parameters uninitialized, we must initialize all
  // out-parameters when reporting success (returning true) to the IPC
-@@ -175,17 +219,17 @@ ObjectWrapperChild::AnswerSomething(/* i
- #endif
- 
- bool
- ObjectWrapperChild::AnswerAddProperty(const nsString& id)
+@@ -184,17 +228,17 @@ bool
+ ObjectWrapperChild::AnswerAddProperty(const nsString& id,
+                                       JSBool* ok)
  {
      jsid interned_id;
+ 
+     *ok = JS_FALSE;
  
      JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
@@ -269,11 +298,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      if (!jsid_from_nsString(cx, id, &interned_id))
          return false;
      
-     JS_DefinePropertyById(cx, mObj, interned_id, JSVAL_VOID, NULL, NULL, 0);
+     *ok = JS_DefinePropertyById(cx, mObj, interned_id, JSVAL_VOID,
+                                 NULL, NULL, 0);
      return true;
  }
- 
-@@ -194,17 +238,17 @@ ObjectWrapperChild::AnswerGetProperty(co
+@@ -204,17 +248,17 @@ ObjectWrapperChild::AnswerGetProperty(co
                                        JSBool* ok, JSVariant* vp)
  {
      jsid interned_id;
@@ -292,7 +321,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      // Since we fully expect this call to jsval_to_JSVariant to return
      // true, we can't just leave vp uninitialized when JS_GetPropertyById
-@@ -220,17 +264,17 @@ ObjectWrapperChild::AnswerSetProperty(co
+@@ -230,17 +274,17 @@ ObjectWrapperChild::AnswerSetProperty(co
  {
      jsid interned_id;
      jsval val;
@@ -311,7 +340,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      *ok = JS_SetPropertyById(cx, mObj, interned_id, &val);
  
      return jsval_to_JSVariant(cx, *ok ? val : JSVAL_VOID, vp);
-@@ -241,17 +285,17 @@ ObjectWrapperChild::AnswerDelProperty(co
+@@ -251,17 +295,17 @@ ObjectWrapperChild::AnswerDelProperty(co
                                        JSBool* ok, JSVariant* vp)
  {
      jsid interned_id;
@@ -330,7 +359,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      return jsval_to_JSVariant(cx, *ok ? val : JSVAL_VOID, vp);
  }
-@@ -283,17 +327,17 @@ static const JSClass sCPOW_NewEnumerateS
+@@ -293,17 +337,17 @@ static const JSClass sCPOW_NewEnumerateS
  bool
  ObjectWrapperChild::AnswerNewEnumerateInit(/* no in-parameters */
                                             JSBool* ok, JSVariant* statep, int* idp)
@@ -349,7 +378,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      
      for (JSObject* proto = mObj;
           proto;
-@@ -330,17 +374,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
+@@ -340,17 +384,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
      JSIdArray* ids;
      JSString* str;
  
@@ -368,7 +397,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
          return false;
  
      int i = JSVAL_TO_INT(v);
-@@ -362,43 +406,43 @@ ObjectWrapperChild::AnswerNewEnumerateNe
+@@ -372,32 +416,32 @@ ObjectWrapperChild::AnswerNewEnumerateNe
      return true;
  }
      
@@ -381,18 +410,6 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +    AutoContextPusher acp(cx);
      return (JSObject_from_JSVariant(cx, in_state, &state) &&
              JS_SetReservedSlot(cx, state, sIdArraySlot, JSVAL_ZERO));
- }
- 
- bool
- ObjectWrapperChild::AnswerIterator(/* no in-parameters */
-                                    PObjectWrapperChild** iterator)
- {
-     JSContext* cx = Manager()->GetContext();
--    JSAutoRequest request(cx);
-+    AutoContextPusher acp(cx);
-     JSObject* iterObj = JS_NewPropertyIterator(cx, mObj);
-     *iterator = Manager()->GetOrCreateWrapper(iterObj);
-     return true;
  }
  
  bool
@@ -415,7 +432,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                NS_ConvertUTF16toUTF8(id).get()));
  
      JSPropertyDescriptor desc;
-@@ -414,29 +458,29 @@ ObjectWrapperChild::AnswerNewResolve(con
+@@ -413,29 +457,29 @@ ObjectWrapperChild::AnswerNewResolve(con
  }
  
  bool
@@ -448,7 +465,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      jsval rv, jsargs[argv.Length()];
      for (PRUint32 i = 0; i < argv.Length(); ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
-@@ -448,17 +492,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+@@ -447,17 +491,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
      return jsval_to_JSVariant(cx, *ok ? rv : JSVAL_VOID, rval);
  }
  
@@ -467,7 +484,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
          if (JS_GetProperty(cx, mObj, "prototype", &pval) &&
              JSVAL_IS_OBJECT(pval))
          {
-@@ -484,14 +528,14 @@ ObjectWrapperChild::AnswerConstruct(cons
+@@ -483,14 +527,14 @@ ObjectWrapperChild::AnswerConstruct(cons
  }
  
  bool
@@ -486,7 +503,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -96,17 +96,24 @@ const JSExtendedClass _::sCPOW_JSClass =
+@@ -101,17 +101,24 @@ const JSExtendedClass _::sCPOW_JSClass =
  };
  
  void
@@ -508,31 +525,31 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  ObjectWrapperParent::GetJSObject(JSContext* cx) const
  {
      JSClass* clasp = const_cast<JSClass*>(&_::sCPOW_JSClass.base);
-     if (!mObj) {
-         mObj = JS_NewObject(cx, clasp, NULL, NULL);
+     if (!mObj && (mObj = JS_NewObject(cx, clasp, NULL, NULL))) {
          *mObjSlotContents = this; // See ActorDestroy, Unwrap.
-         JS_SetReservedSlot(cx, mObj, sWrappedObjSlot,
-@@ -289,17 +296,18 @@ ObjectWrapperParent::CPOW_AddProperty(JS
-     if (AutoResolveFlag::IsSet(cx, obj))
-         return JS_TRUE;
+         JS_SetPrivate(cx, mObj, mObjSlotContents);
+         JS_SetReservedSlot(cx, mObj, sFlagsSlot, JSVAL_ZERO);
+@@ -293,17 +300,18 @@ ObjectWrapperParent::CPOW_AddProperty(JS
      
      nsString in_id;
  
      if (!jsval_to_nsString(cx, id, &in_id))
          return JS_FALSE;
  
--    return self->CallAddProperty(in_id);
+     JSBool out_ok;
+ 
+-    return (self->CallAddProperty(in_id,
 +    return (self->Manager()->RequestRunToCompletion() &&
-+            self->CallAddProperty(in_id));
- }    
++            self->CallAddProperty(in_id,
+                                   &out_ok) &&
+             out_ok);
+ }
  
  /*static*/ JSBool
  ObjectWrapperParent::CPOW_GetProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
  {
-     CPOW_LOG(("Calling CPOW_GetProperty (%s)...",
-               JSVAL_TO_CSTR(cx, id)));
-@@ -311,17 +319,18 @@ ObjectWrapperParent::CPOW_GetProperty(JS
+@@ -317,17 +325,18 @@ ObjectWrapperParent::CPOW_GetProperty(JS
      nsString in_id;
  
      if (!jsval_to_nsString(cx, id, &in_id))
@@ -552,7 +569,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  /*static*/ JSBool
  ObjectWrapperParent::CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
-@@ -338,17 +347,18 @@ ObjectWrapperParent::CPOW_SetProperty(JS
+@@ -344,17 +353,18 @@ ObjectWrapperParent::CPOW_SetProperty(JS
  
      if (!jsval_to_nsString(cx, id, &in_id) ||
          !self->jsval_to_JSVariant(cx, *vp, &in_v))
@@ -572,7 +589,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  /*static*/ JSBool
  ObjectWrapperParent::CPOW_DelProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
-@@ -363,17 +373,18 @@ ObjectWrapperParent::CPOW_DelProperty(JS
+@@ -369,17 +379,18 @@ ObjectWrapperParent::CPOW_DelProperty(JS
      nsString in_id;
  
      if (!jsval_to_nsString(cx, id, &in_id))
@@ -592,7 +609,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  JSBool
  ObjectWrapperParent::NewEnumerateInit(JSContext* cx, jsval* statep, jsid* idp)
  {
-@@ -430,16 +441,17 @@ ObjectWrapperParent::CPOW_NewEnumerate(J
+@@ -436,16 +447,17 @@ ObjectWrapperParent::CPOW_NewEnumerate(J
      CPOW_LOG(("Calling CPOW_NewEnumerate..."));
  
      ObjectWrapperParent* self = Unwrap(cx, obj);
@@ -610,7 +627,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      }
  
      return JS_FALSE;
-@@ -459,17 +471,18 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
+@@ -465,17 +477,18 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
      nsString in_id;
  
      if (!jsval_to_nsString(cx, id, &in_id))
@@ -630,7 +647,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      jsid interned_id;
      if (*objp &&
          JS_ValueToId(cx, id, &interned_id)) {
-@@ -529,17 +542,18 @@ ObjectWrapperParent::CPOW_Call(JSContext
+@@ -535,17 +548,18 @@ ObjectWrapperParent::CPOW_Call(JSContext
      nsTArray<JSVariant> in_argv(argc);
      for (uintN i = 0; i < argc; i++)
          if (!jsval_to_JSVariant(cx, argv[i], in_argv.AppendElement()))
@@ -650,7 +667,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  /*static*/ JSBool
  ObjectWrapperParent::CPOW_Construct(JSContext *cx, JSObject *obj, uintN argc,
                                      jsval *argv, jsval *rval)
-@@ -554,17 +568,18 @@ ObjectWrapperParent::CPOW_Construct(JSCo
+@@ -560,17 +574,18 @@ ObjectWrapperParent::CPOW_Construct(JSCo
      nsTArray<JSVariant> in_argv(argc);
      for (uintN i = 0; i < argc; i++)
          if (!jsval_to_JSVariant(cx, argv[i], in_argv.AppendElement()))
@@ -670,7 +687,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  /*static*/ JSBool
  ObjectWrapperParent::CPOW_HasInstance(JSContext *cx, JSObject *obj, jsval v,
                                        JSBool *bp)
-@@ -579,17 +594,18 @@ ObjectWrapperParent::CPOW_HasInstance(JS
+@@ -585,17 +600,18 @@ ObjectWrapperParent::CPOW_HasInstance(JS
  
      JSVariant in_v;
  

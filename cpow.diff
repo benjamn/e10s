@@ -26,7 +26,17 @@ diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFra
     * Get the docshell from the frame loader.
     */
    readonly attribute nsIDocShell docShell;
-@@ -115,16 +116,18 @@ native alreadyAddRefed_nsFrameLoader(alr
+@@ -106,25 +107,27 @@ interface nsIFrameLoader : nsISupports
+    */
+   void activateFrameEvent(in AString aType, in boolean capture);
+ 
+   readonly attribute nsIChromeFrameMessageManager messageManager;
+ };
+ 
+ native alreadyAddRefed_nsFrameLoader(already_AddRefed<nsFrameLoader>);
+ 
+-[scriptable, uuid(8f3b12a0-35ae-4e0d-9152-8e0d7e49d446)]
++[scriptable, uuid(5879040e-83e9-40e3-b2bb-5ddf43b76e47)]
  interface nsIFrameLoaderOwner : nsISupports
  {
    /**
@@ -86,7 +96,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
    {
    }
  
-@@ -1530,16 +1534,34 @@ nsFrameLoader::ActivateFrameEvent(const 
+@@ -1530,16 +1534,33 @@ nsFrameLoader::ActivateFrameEvent(const 
    if (mChildProcess) {
      mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
      return NS_OK;
@@ -98,7 +108,6 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
 +NS_IMETHODIMP
 +nsFrameLoader::GetCrossProcessObjectWrapper(nsIVariant** cpow)
 +{
-+  
 +   nsIXPConnect* xpc;
 +   nsIThreadJSContextStack* stack;
 +   JSContext* cx;
@@ -398,7 +407,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  #endif
  
  NS_IMPL_ISUPPORTS1(ContentListener, nsIDOMEventListener)
-@@ -372,16 +380,20 @@ TabChild::RecvloadURL(const nsCString& u
+@@ -372,16 +380,19 @@ TabChild::RecvloadURL(const nsCString& u
      printf("loading %s, %d\n", uri.get(), NS_IsMainThread());
  
      nsresult rv = mWebNav->LoadURI(NS_ConvertUTF8toUTF16(uri).get(),
@@ -408,8 +417,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
          NS_WARNING("mWebNav->LoadURI failed. Eating exception, what else can I do?");
      }
 +
-+    SendPContextWrapperConstructor()
-+        ->SendPObjectWrapperConstructor(true);
++    SendPContextWrapperConstructor()->SendPObjectWrapperConstructor(true);
 +
      return true;
  }
@@ -419,7 +427,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -414,16 +426,46 @@ TabChild::RecvsendMouseEvent(const nsStr
+@@ -414,16 +425,47 @@ TabChild::RecvsendMouseEvent(const nsStr
    nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
@@ -439,8 +447,9 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +    if (NS_SUCCEEDED(webNav->GetDocument(getter_AddRefs(domDocument))) &&
 +        (document = do_QueryInterface(domDocument)) &&
 +        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
-+        (context = do_QueryInterface(global->GetContext())))
++        (context = do_QueryInterface(global->GetContext()))) {
 +        return static_cast<JSContext*>(context->GetNativeContext());
++    }
 +
 +    return NULL;
 +}
@@ -579,8 +588,8 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 +    if (cwps.Length() < 1)
 +        return false;
 +    NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
-+    return (static_cast<ContextWrapperParent*>(cwps[0])
-+            ->GetGlobalJSObject(cx, globalp));
++    ContextWrapperParent* cwp = static_cast<ContextWrapperParent*>(cwps[0]);
++    return (cwp->GetGlobalJSObject(cx, globalp));
 +}
 +
  void
@@ -744,9 +753,9 @@ diff --git a/ipc/testshell/TestShellChild.cpp b/ipc/testshell/TestShellChild.cpp
 +TestShellChild::AllocPContextWrapper()
 +{
 +  JSContext* cx;
-+  if (mXPCShell &&
-+      (cx = mXPCShell->GetContext()))
++  if (mXPCShell && (cx = mXPCShell->GetContext())) {
 +    return new ContextWrapperChild(cx);
++  }
 +  return NULL;
 +}
 +
@@ -865,8 +874,8 @@ diff --git a/ipc/testshell/TestShellParent.cpp b/ipc/testshell/TestShellParent.c
 +    if (cwps.Length() < 1)
 +        return false;
 +    NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
-+    return (static_cast<ContextWrapperParent*>(cwps[0])
-+            ->GetGlobalJSObject(cx, globalp));
++    ContextWrapperParent* cwp = static_cast<ContextWrapperParent*>(cwps[0]);
++    return (cwp->GetGlobalJSObject(cx, globalp));
 +}
 +
  JSBool
@@ -967,7 +976,7 @@ diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/CPOWTypes.h
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,66 @@
 +#ifndef mozilla_jsipc_ContextWrapperTypes_h__
 +#define mozilla_jsipc_ContextWrapperTypes_h__
 +
@@ -1019,15 +1028,18 @@ new file mode 100644
 +}
 +
 +// TODO Use a more standard logging mechanism.
-+#ifdef DEBUG
++#ifdef LOGGING
 +#define CPOW_LOG(PRINTF_ARGS) \
 +    JS_BEGIN_MACRO            \
 +    printf("CPOW | ");        \
 +    printf PRINTF_ARGS ;      \
 +    printf("\n");             \
 +    JS_END_MACRO
++#define JSVAL_TO_CSTR(CX, V) \
++    NS_ConvertUTF16toUTF8(nsString(JS_GetStringChars(JS_ValueToString(CX, V)))).get()
 +#else
 +#define CPOW_LOG(_) JS_BEGIN_MACRO JS_END_MACRO
++#define JSVAL_TO_CSTR(CX, V) ((char*)0)
 +#endif
 +
 +#endif
@@ -1035,7 +1047,7 @@ diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ContextWrapperChild.h
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,71 @@
 +#ifndef mozilla_jsipc_ContextWrapperChild_h__
 +#define mozilla_jsipc_ContextWrapperChild_h__
 +
@@ -1068,14 +1080,15 @@ new file mode 100644
 +        if (!obj) // Don't wrap nothin'!
 +            return NULL;
 +        PObjectWrapperChild* wrapper;
-+        while (!mResidentObjectTable.Get(obj, &wrapper))
-+            mResidentObjectTable.Put(obj, SendPObjectWrapperConstructor(AllocPObjectWrapper(obj),
-+                                                                        makeGlobal));
++        while (!mResidentObjectTable.Get(obj, &wrapper)) {
++            wrapper = SendPObjectWrapperConstructor(AllocPObjectWrapper(obj),
++                                                    makeGlobal);
++            if (wrapper)
++                mResidentObjectTable.Put(obj, wrapper);
++            else
++                return NULL;
++        }
 +        return wrapper;
-+    }
-+    
-+    PObjectWrapperChild* GetOrCreateGlobalWrapper() {
-+        return GetOrCreateWrapper(JS_GetGlobalObject(mContext), true);
 +    }
 +
 +protected:
@@ -1219,7 +1232,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,497 @@
+@@ -0,0 +1,496 @@
 +#include "mozilla/jsipc/ContextWrapperChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -1232,8 +1245,12 @@ new file mode 100644
 +    : mObj(obj)
 +{
 +    JSAutoRequest request(cx);
-+    JS_AddNamedRoot(cx, (void*)&mObj,
-+                    "mozilla::jsipc::ObjectWrapperChild-rooted JSObject*");
++#ifdef DEBUG
++    bool added =
++#endif
++        JS_AddNamedRoot(cx, (void*)&mObj,
++                        "mozilla::jsipc::ObjectWrapperChild-rooted JSObject*");
++    NS_ASSERTION(added, "ObjectWrapperChild constructor failed to root JSObject*");
 +}
 +
 +void
@@ -1374,6 +1391,8 @@ new file mode 100644
 +jsid_from_nsString(JSContext* cx, const nsString& from, jsid* to)
 +{
 +    JSString* str = JS_NewUCStringCopyN(cx, from.BeginReading(), from.Length());
++    if (!str)
++        return false;
 +    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
 +}
 +
@@ -1397,9 +1416,12 @@ new file mode 100644
 +#endif
 +
 +bool
-+ObjectWrapperChild::AnswerAddProperty(const nsString& id)
++ObjectWrapperChild::AnswerAddProperty(const nsString& id,
++                                      JSBool* ok)
 +{
 +    jsid interned_id;
++
++    *ok = JS_FALSE;
 +
 +    JSContext* cx = Manager()->GetContext();
 +    JSAutoRequest request(cx);
@@ -1407,7 +1429,8 @@ new file mode 100644
 +    if (!jsid_from_nsString(cx, id, &interned_id))
 +        return false;
 +    
-+    JS_DefinePropertyById(cx, mObj, interned_id, JSVAL_VOID, NULL, NULL, 0);
++    *ok = JS_DefinePropertyById(cx, mObj, interned_id, JSVAL_VOID,
++                                NULL, NULL, 0);
 +    return true;
 +}
 +
@@ -1595,17 +1618,6 @@ new file mode 100644
 +}
 +
 +bool
-+ObjectWrapperChild::AnswerIterator(/* no in-parameters */
-+                                   PObjectWrapperChild** iterator)
-+{
-+    JSContext* cx = Manager()->GetContext();
-+    JSAutoRequest request(cx);
-+    JSObject* iterObj = JS_NewPropertyIterator(cx, mObj);
-+    *iterator = Manager()->GetOrCreateWrapper(iterObj);
-+    return true;
-+}
-+
-+bool
 +ObjectWrapperChild::AnswerNewResolve(const nsString& id, const int& flags,
 +                                     JSBool* ok, PObjectWrapperChild** obj2)
 +{
@@ -1721,7 +1733,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.h
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,81 @@
 +#ifndef mozilla_jsipc_ObjectWrapperChild_h__
 +#define mozilla_jsipc_ObjectWrapperChild_h__
 +
@@ -1764,7 +1776,8 @@ new file mode 100644
 +
 +    void ActorDestroy(ActorDestroyReason why);
 +
-+    bool AnswerAddProperty(const nsString& id);
++    bool AnswerAddProperty(const nsString& id,
++                           JSBool* ok);
 +
 +    bool AnswerGetProperty(const nsString& id,
 +                           JSBool* ok, JSVariant* vp);
@@ -1783,9 +1796,6 @@ new file mode 100644
 +
 +    bool RecvNewEnumerateDestroy(const JSVariant& in_state);
 +
-+    bool AnswerIterator(/* no in-parameters */
-+                        PObjectWrapperChild** iterator);
-+    
 +    bool AnswerNewResolve(const nsString& id, const int& flags,
 +                          JSBool* ok, PObjectWrapperChild** obj2);
 +
@@ -1809,7 +1819,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,614 @@
+@@ -0,0 +1,620 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +#include "mozilla/jsipc/ContextWrapperParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -1825,8 +1835,10 @@ new file mode 100644
 +    // This shorthand saves a LOT of typing.
 +    typedef ObjectWrapperParent _;
 +
-+    static const uintN sFlagsSlot = 0, sWrappedObjSlot = 1;
-+    static const uintN sNumSlots = 2;
++    // Only need one reserved slot because the ObjectWrapperParent* is
++    // stored in the private slot.
++    static const uintN sFlagsSlot = 0;
++    static const uintN sNumSlots = 1;
 +    static const uintN CPOW_FLAG_RESOLVING = 1 << 0;
 +
 +    class AutoResolveFlag
@@ -1838,9 +1850,12 @@ new file mode 100644
 +
 +        static uintN GetFlags(JSContext* cx, JSObject* obj) {
 +            jsval v;
-+            if (JS_GetReservedSlot(cx, obj, sFlagsSlot, &v))
-+                return JSVAL_TO_INT(v);
-+            return 0;
++#ifdef DEBUG
++            JSBool ok =
++#endif
++                JS_GetReservedSlot(cx, obj, sFlagsSlot, &v);
++            NS_ASSERTION(ok, "Failed to get CPOW flags");
++            return JSVAL_TO_INT(v);
 +        }
 +
 +        static uintN SetFlags(JSContext* cx, JSObject* obj, uintN flags) {
@@ -1879,7 +1894,7 @@ new file mode 100644
 +    // JSClass (JSExtendedClass.base) initialization
 +    { "CrossProcessObjectWrapper",
 +      JSCLASS_NEW_RESOLVE | JSCLASS_NEW_ENUMERATE | JSCLASS_IS_EXTENDED |
-+      JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
++      JSCLASS_HAS_PRIVATE | JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
 +      _::CPOW_AddProperty,
 +      _::CPOW_DelProperty,
 +      _::CPOW_GetProperty,
@@ -1902,7 +1917,7 @@ new file mode 100644
 +    _::CPOW_Equality,
 +    nsnull, // outerObject
 +    nsnull, // innerObject
-+    nsnull, // _::CPOW_Iterator,
++    nsnull, // iterator
 +    nsnull, // wrappedObject
 +    JSCLASS_NO_RESERVED_MEMBERS
 +};
@@ -1918,11 +1933,9 @@ new file mode 100644
 +ObjectWrapperParent::GetJSObject(JSContext* cx) const
 +{
 +    JSClass* clasp = const_cast<JSClass*>(&_::sCPOW_JSClass.base);
-+    if (!mObj) {
-+        mObj = JS_NewObject(cx, clasp, NULL, NULL);
++    if (!mObj && (mObj = JS_NewObject(cx, clasp, NULL, NULL))) {
 +        *mObjSlotContents = this; // See ActorDestroy, Unwrap.
-+        JS_SetReservedSlot(cx, mObj, sWrappedObjSlot,
-+                           PRIVATE_TO_JSVAL(mObjSlotContents));
++        JS_SetPrivate(cx, mObj, mObjSlotContents);
 +        JS_SetReservedSlot(cx, mObj, sFlagsSlot, JSVAL_ZERO);
 +    }
 +    return mObj;
@@ -1935,14 +1948,9 @@ new file mode 100644
 +        if (!(obj = STOBJ_GET_PROTO(obj)))
 +            return NULL;
 +    
-+    jsval info;
-+
-+    if (!JS_GetReservedSlot(cx, obj, sWrappedObjSlot, &info))
-+        return NULL;
-+
 +    // See ActorDestroy, GetJSObject.
 +    ObjectWrapperParent* self =
-+        *static_cast<ObjectWrapperParent**>(JSVAL_TO_PRIVATE(info));
++        *static_cast<ObjectWrapperParent**>(JS_GetPrivate(cx, obj));
 +
 +    NS_ASSERTION(!self || self->GetJSObject(cx) == obj,
 +                 "Wrapper and wrapped object disagree?");
@@ -2002,8 +2010,13 @@ new file mode 100644
 +    case JSVariant::TPObjectWrapperParent:
 +        return jsval_from_PObjectWrapperParent(cx, from.get_PObjectWrapperParent(), to);
 +    case JSVariant::TnsString:
-+        *to = STRING_TO_JSVAL(JS_NewUCStringCopyZ(cx, from.get_nsString().BeginReading()));
-+        return true;
++        {
++            JSString* str = JS_NewUCStringCopyZ(cx, from.get_nsString().BeginReading());
++            if (!str)
++                return false;
++            *to = STRING_TO_JSVAL(str);
++            return true;
++        }
 +    case JSVariant::Tint:
 +        *to = INT_TO_JSVAL(from.get_int());
 +        return true;
@@ -2070,6 +2083,8 @@ new file mode 100644
 +jsid_from_nsString(JSContext* cx, const nsString& from, jsid* to)
 +{
 +    JSString* str = JS_NewUCStringCopyZ(cx, from.BeginReading());
++    if (!str)
++        return false;
 +    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
 +}
 +
@@ -2083,9 +2098,6 @@ new file mode 100644
 +    }
 +    return false;
 +}
-+
-+#define JSVAL_TO_CSTR(CX, V) \
-+    NS_ConvertUTF16toUTF8(nsString(JS_GetStringChars(JS_ValueToString(CX, V)))).get()
 +
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_AddProperty(JSContext *cx, JSObject *obj, jsval id,
@@ -2106,8 +2118,12 @@ new file mode 100644
 +    if (!jsval_to_nsString(cx, id, &in_id))
 +        return JS_FALSE;
 +
-+    return self->CallAddProperty(in_id);
-+}    
++    JSBool out_ok;
++
++    return (self->CallAddProperty(in_id,
++                                  &out_ok) &&
++            out_ok);
++}
 +
 +/*static*/ JSBool
 +ObjectWrapperParent::CPOW_GetProperty(JSContext *cx, JSObject *obj, jsval id,
@@ -2554,7 +2570,7 @@ diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,82 @@
 +include protocol "PContextWrapper.ipdl";
 +
 +include "mozilla/jsipc/CPOWTypes.h";
@@ -2585,7 +2601,8 @@ new file mode 100644
 +child:
 +    __delete__(); // unroot
 +
-+    rpc AddProperty(nsString id);
++    rpc AddProperty(nsString id)
++        returns (JSBool ok);
 +
 +    rpc GetProperty(nsString id)
 +        returns (JSBool ok,
@@ -2611,9 +2628,6 @@ new file mode 100644
 +                 nsString idp);
 +
 +    async NewEnumerateDestroy(JSVariant in_state);
-+
-+    rpc Iterator()
-+        returns (PObjectWrapper iterator);
 +
 +    rpc NewResolve(nsString id,
 +                   int flags)
@@ -2718,10 +2732,10 @@ diff --git a/toolkit/library/libxul-config.mk b/toolkit/library/libxul-config.mk
    domplugins_s \
    mozipc_s \
    mozipdlgen_s \
-   chromium_s \
    ipcshell_s \
    gfxipc_s \
    $(NULL)
+ 
 diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
 --- a/toolkit/toolkit-makefiles.sh
 +++ b/toolkit/toolkit-makefiles.sh
@@ -2746,7 +2760,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
  MAKEFILES_jsctypes="
    js/ctypes/Makefile
  "
-@@ -845,16 +849,17 @@ add_makefiles "
+@@ -844,16 +848,17 @@ add_makefiles "
    $MAKEFILES_db
    $MAKEFILES_dom
    $MAKEFILES_editor
@@ -2767,7 +2781,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
 diff --git a/toolkit/toolkit-tiers.mk b/toolkit/toolkit-tiers.mk
 --- a/toolkit/toolkit-tiers.mk
 +++ b/toolkit/toolkit-tiers.mk
-@@ -76,17 +76,17 @@ ifeq ($(OS_ARCH),WINCE)
+@@ -77,17 +77,17 @@ ifeq ($(OS_ARCH),WINCE)
  tier_external_dirs += modules/lib7z
  endif
  
@@ -2789,7 +2803,7 @@ diff --git a/toolkit/toolkit-tiers.mk b/toolkit/toolkit-tiers.mk
 diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
 --- a/toolkit/xre/nsEmbedFunctions.cpp
 +++ b/toolkit/xre/nsEmbedFunctions.cpp
-@@ -86,16 +86,18 @@
+@@ -87,16 +87,18 @@
  #include "mozilla/ipc/BrowserProcessSubThread.h"
  #include "ScopedXREEmbed.h"
  
@@ -2808,7 +2822,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  #include "mozilla/_ipdltest/IPDLUnitTests.h"
  #include "mozilla/_ipdltest/IPDLUnitTestThreadChild.h"
  
-@@ -105,16 +107,20 @@ using mozilla::_ipdltest::IPDLUnitTestTh
+@@ -106,16 +108,20 @@ using mozilla::_ipdltest::IPDLUnitTestTh
  using mozilla::ipc::GeckoChildProcessHost;
  using mozilla::ipc::BrowserProcessSubThread;
  using mozilla::ipc::ScopedXREEmbed;
@@ -2829,7 +2843,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  using mozilla::MonitorAutoEnter;
  
  using mozilla::startup::sChildProcessType;
-@@ -509,48 +515,60 @@ XRE_ShutdownChildProcess()
+@@ -510,48 +516,60 @@ XRE_ShutdownChildProcess()
    MessageLoop* ioLoop = XRE_GetIOMessageLoop();
    NS_ABORT_IF_FALSE(!!ioLoop, "Bad shutdown order");
  
@@ -2898,11 +2912,11 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
    return ContentProcessParent::GetSingleton()->DestroyTestShell(gTestShellParent);
  }
  
- #endif // MOZ_IPC
+ #ifdef MOZ_X11
 diff --git a/xpcom/build/nsXULAppAPI.h b/xpcom/build/nsXULAppAPI.h
 --- a/xpcom/build/nsXULAppAPI.h
 +++ b/xpcom/build/nsXULAppAPI.h
-@@ -498,12 +498,18 @@ XRE_API(MessageLoop*,
+@@ -498,14 +498,20 @@ XRE_API(MessageLoop*,
  
  struct JSContext;
  struct JSString;
@@ -2920,4 +2934,6 @@ diff --git a/xpcom/build/nsXULAppAPI.h b/xpcom/build/nsXULAppAPI.h
  XRE_API(bool,
          XRE_ShutdownTestShell, ())
  
+ XRE_API(void,
+         XRE_InstallX11ErrorHandler, ())
  #endif // _nsXULAppAPI_h__
