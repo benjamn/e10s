@@ -96,7 +96,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
    {
    }
  
-@@ -1530,16 +1534,33 @@ nsFrameLoader::ActivateFrameEvent(const 
+@@ -1530,16 +1534,34 @@ nsFrameLoader::ActivateFrameEvent(const 
    if (mChildProcess) {
      mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
      return NS_OK;
@@ -116,10 +116,11 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
 +   if ((xpc = nsContentUtils::XPConnect()) &&
 +       (stack = nsContentUtils::ThreadJSContextStack()) &&
 +       NS_SUCCEEDED(stack->Peek(&cx)) && cx &&
-+       mChildProcess->GetGlobalJSObject(cx, &global))
-+    return xpc->JSToVariant(cx, OBJECT_TO_JSVAL(global), cpow);
++       mChildProcess->GetGlobalJSObject(cx, &global)) {
++     return xpc->JSToVariant(cx, OBJECT_TO_JSVAL(global), cpow);
++   }
 +  
-+  return NS_ERROR_NOT_AVAILABLE;
++   return NS_ERROR_NOT_AVAILABLE;
 +}
 +
  nsresult
@@ -274,7 +275,7 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
  
  using namespace mozilla::ipc;
  using namespace mozilla::net;
-@@ -110,16 +112,24 @@ ContentProcessChild::AllocPTestShell()
+@@ -110,16 +112,23 @@ ContentProcessChild::AllocPTestShell()
  
  bool
  ContentProcessChild::DeallocPTestShell(PTestShellChild* shell)
@@ -286,8 +287,7 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 +bool
 +ContentProcessChild::RecvPTestShellConstructor(PTestShellChild* actor)
 +{
-+    actor->SendPContextWrapperConstructor()
-+        ->SendPObjectWrapperConstructor(true);
++    actor->SendPContextWrapperConstructor()->SendPObjectWrapperConstructor(true);
 +    return true;
 +}
 +

@@ -5,35 +5,6 @@
 # Parent  c631b16ad5f0cc808c0fc910a3c2bfa6e539f9da
 imported patch new-request-model.diff
 
-diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader.cpp
---- a/content/base/src/nsFrameLoader.cpp
-+++ b/content/base/src/nsFrameLoader.cpp
-@@ -1545,20 +1545,21 @@ nsFrameLoader::GetCrossProcessObjectWrap
-    nsIXPConnect* xpc;
-    nsIThreadJSContextStack* stack;
-    JSContext* cx;
-    JSObject* global;
-  
-    if ((xpc = nsContentUtils::XPConnect()) &&
-        (stack = nsContentUtils::ThreadJSContextStack()) &&
-        NS_SUCCEEDED(stack->Peek(&cx)) && cx &&
--       mChildProcess->GetGlobalJSObject(cx, &global))
--    return xpc->JSToVariant(cx, OBJECT_TO_JSVAL(global), cpow);
--  
--  return NS_ERROR_NOT_AVAILABLE;
-+       mChildProcess->GetGlobalJSObject(cx, &global)) {
-+     return xpc->JSToVariant(cx, OBJECT_TO_JSVAL(global), cpow);
-+   }
-+
-+   return NS_ERROR_NOT_AVAILABLE;
- }
- 
- nsresult
- nsFrameLoader::CreateStaticClone(nsIFrameLoader* aDest)
- {
-   nsFrameLoader* dest = static_cast<nsFrameLoader*>(aDest);
-   dest->MaybeCreateDocShell();
-   NS_ENSURE_STATE(dest->mDocShell);
 diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 --- a/dom/ipc/TabParent.cpp
 +++ b/dom/ipc/TabParent.cpp
