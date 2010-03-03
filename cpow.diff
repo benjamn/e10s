@@ -77,7 +77,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
  #include "nsIDOMEventTarget.h"
  #include "nsIFrame.h"
  #include "nsIFrameFrame.h"
-@@ -115,16 +117,18 @@
+@@ -118,16 +120,18 @@
  #ifdef MOZ_IPC
  #include "ContentProcessParent.h"
  #include "TabParent.h"
@@ -96,7 +96,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
    {
    }
  
-@@ -1542,16 +1546,34 @@ nsFrameLoader::ActivateFrameEvent(const 
+@@ -1573,16 +1577,34 @@ nsFrameLoader::ActivateFrameEvent(const 
    if (mChildProcess) {
      mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
      return NS_OK;
@@ -181,7 +181,7 @@ diff --git a/content/base/src/nsObjectLoadingContent.cpp b/content/base/src/nsOb
 diff --git a/content/html/content/src/nsGenericHTMLElement.cpp b/content/html/content/src/nsGenericHTMLElement.cpp
 --- a/content/html/content/src/nsGenericHTMLElement.cpp
 +++ b/content/html/content/src/nsGenericHTMLElement.cpp
-@@ -2774,16 +2774,23 @@ nsGenericHTMLFrameElement::GetFrameLoade
+@@ -2752,16 +2752,23 @@ nsGenericHTMLFrameElement::GetFrameLoade
  
  NS_IMETHODIMP
  nsGenericHTMLFrameElement::SwapFrameLoaders(nsIFrameLoaderOwner* aOtherOwner)
@@ -208,7 +208,7 @@ diff --git a/content/html/content/src/nsGenericHTMLElement.cpp b/content/html/co
 diff --git a/content/xul/content/src/nsXULElement.cpp b/content/xul/content/src/nsXULElement.cpp
 --- a/content/xul/content/src/nsXULElement.cpp
 +++ b/content/xul/content/src/nsXULElement.cpp
-@@ -2061,16 +2061,22 @@ nsXULElement::SwapFrameLoaders(nsIFrameL
+@@ -2001,16 +2001,22 @@ nsXULElement::SwapFrameLoaders(nsIFrameL
      }
  
      return
@@ -234,7 +234,7 @@ diff --git a/content/xul/content/src/nsXULElement.cpp b/content/xul/content/src/
 diff --git a/content/xul/content/src/nsXULElement.h b/content/xul/content/src/nsXULElement.h
 --- a/content/xul/content/src/nsXULElement.h
 +++ b/content/xul/content/src/nsXULElement.h
-@@ -579,16 +579,18 @@ public:
+@@ -576,16 +576,18 @@ public:
      virtual PRInt32 IntrinsicState() const;
  
      nsresult GetStyle(nsIDOMCSSStyleDeclaration** aStyle);
@@ -2733,7 +2733,7 @@ diff --git a/toolkit/library/libxul-config.mk b/toolkit/library/libxul-config.mk
 diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
 --- a/toolkit/toolkit-makefiles.sh
 +++ b/toolkit/toolkit-makefiles.sh
-@@ -201,16 +201,20 @@ MAKEFILES_xpconnect="
+@@ -202,16 +202,20 @@ MAKEFILES_xpconnect="
    js/src/xpconnect/loader/Makefile
    js/src/xpconnect/tests/Makefile
    js/src/xpconnect/tests/components/Makefile
@@ -2754,7 +2754,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
  MAKEFILES_jsctypes="
    js/ctypes/Makefile
  "
-@@ -844,16 +848,17 @@ add_makefiles "
+@@ -845,16 +849,17 @@ add_makefiles "
    $MAKEFILES_db
    $MAKEFILES_dom
    $MAKEFILES_editor
@@ -2775,25 +2775,25 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
 diff --git a/toolkit/toolkit-tiers.mk b/toolkit/toolkit-tiers.mk
 --- a/toolkit/toolkit-tiers.mk
 +++ b/toolkit/toolkit-tiers.mk
-@@ -77,17 +77,17 @@ ifeq ($(OS_ARCH),WINCE)
- tier_external_dirs += modules/lib7z
+@@ -97,17 +97,17 @@ ifeq ($(OS_ARCH),WINCE)
+ tier_platform_dirs += modules/lib7z
  endif
  
  #
- # tier "gecko" - core components
+ # "gecko" - core components
  #
  
  ifdef MOZ_IPC
--tier_gecko_dirs += ipc
-+tier_gecko_dirs += ipc js/src/ipc
+-tier_platform_dirs += ipc
++tier_platform_dirs += ipc js/src/ipc
  endif
  
- tier_gecko_dirs += \
- 		$(tier_necko_dirs) \
+ tier_platform_dirs += \
  		js/src/xpconnect \
  		js/ctypes \
  		intl/chardet \
  		$(NULL)
+ 
 diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
 --- a/toolkit/xre/nsEmbedFunctions.cpp
 +++ b/toolkit/xre/nsEmbedFunctions.cpp
