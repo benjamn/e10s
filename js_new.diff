@@ -1,0 +1,64 @@
+Bug 480850 - JSAPI should support creating objects given a constructor Function.
+
+diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
+--- a/js/src/jsapi.cpp
++++ b/js/src/jsapi.cpp
+@@ -2996,16 +2996,35 @@ JS_ConstructObjectWithArguments(JSContex
+                                 JSObject *parent, uintN argc, jsval *argv)
+ {
+     CHECK_REQUEST(cx);
+     if (!clasp)
+         clasp = &js_ObjectClass;    /* default class is Object */
+     return js_ConstructObject(cx, clasp, proto, parent, argc, argv);
+ }
+ 
++JS_PUBLIC_API(JSObject *)
++JS_New(JSContext *cx, JSObject *ctor, uintN argc, jsval *argv)
++{
++    CHECK_REQUEST(cx);
++    void *mark;
++    jsval *vp = js_AllocStack(cx, 2 + argc, &mark);
++    if (!vp)
++        return NULL;
++    vp[0] = OBJECT_TO_JSVAL(ctor);
++    vp[1] = JSVAL_NULL;
++    memcpy(vp + 2, argv, argc * sizeof(jsval));
++
++    JSBool ok = js_InvokeConstructor(cx, argc, JS_TRUE, vp);
++    JSObject *obj = ok ? JSVAL_TO_OBJECT(vp[0]) : NULL;
++
++    js_FreeStack(cx, mark);
++    return obj;
++}
++
+ static JSBool
+ DefinePropertyById(JSContext *cx, JSObject *obj, jsid id, jsval value,
+                    JSPropertyOp getter, JSPropertyOp setter, uintN attrs,
+                    uintN flags, intN tinyid)
+ {
+     if (flags != 0 && OBJ_IS_NATIVE(obj)) {
+         JSAutoResolveFlags rf(cx, JSRESOLVE_QUALIFIED | JSRESOLVE_DECLARING);
+         return !!js_DefineNativeProperty(cx, obj, id, value, getter, setter,
+diff --git a/js/src/jsapi.h b/js/src/jsapi.h
+--- a/js/src/jsapi.h
++++ b/js/src/jsapi.h
+@@ -1695,16 +1695,19 @@ extern JS_PUBLIC_API(JSObject *)
+ JS_ConstructObject(JSContext *cx, JSClass *clasp, JSObject *proto,
+                    JSObject *parent);
+ 
+ extern JS_PUBLIC_API(JSObject *)
+ JS_ConstructObjectWithArguments(JSContext *cx, JSClass *clasp, JSObject *proto,
+                                 JSObject *parent, uintN argc, jsval *argv);
+ 
+ extern JS_PUBLIC_API(JSObject *)
++JS_New(JSContext *cx, JSObject *ctor, uintN argc, jsval *argv);
++
++extern JS_PUBLIC_API(JSObject *)
+ JS_DefineObject(JSContext *cx, JSObject *obj, const char *name, JSClass *clasp,
+                 JSObject *proto, uintN attrs);
+ 
+ extern JS_PUBLIC_API(JSBool)
+ JS_DefineConstDoubles(JSContext *cx, JSObject *obj, JSConstDoubleSpec *cds);
+ 
+ extern JS_PUBLIC_API(JSBool)
+ JS_DefineProperties(JSContext *cx, JSObject *obj, JSPropertySpec *ps);

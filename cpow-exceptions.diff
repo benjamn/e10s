@@ -266,7 +266,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      
      for (JSObject* proto = mObj;
           proto;
-@@ -361,147 +415,146 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+@@ -361,167 +415,164 @@ ObjectWrapperChild::AnswerNewEnumerateIn
      }
  
      JSIdArray* ids = JS_Enumerate(cx, state);
@@ -357,9 +357,8 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      JSContext* cx = Manager()->GetContext();
      AutoContextPusher acp(cx);
- 
 +    AutoCheckOperation aco(this, status);
-+
+ 
      if (!jsid_from_nsString(cx, id, &interned_id))
          return false;
  
@@ -428,37 +427,24 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 -                                    JSBool* ok, PObjectWrapperChild** rval)
 +                                    OperationStatus* status, PObjectWrapperChild** rval)
  {
+-    *ok = JS_FALSE;
+-
      JSContext* cx = Manager()->GetContext();
      AutoContextPusher acp(cx);
 +    AutoCheckOperation aco(this, status);
  
-     JSClass* clasp = NULL;
-     JSObject* pobj = JSVAL_NULL;
-     {
-         jsval pval;
-         if (JS_GetProperty(cx, mObj, "prototype", &pval) &&
-             JSVAL_IS_OBJECT(pval))
-         {
-@@ -509,32 +562,33 @@ ObjectWrapperChild::AnswerConstruct(cons
-             clasp = JS_GetClass(cx, pobj);
-         }
-     }
-     JSObject* obj = JS_NewObject(cx, clasp, pobj, NULL);
-     PObjectWrapperChild* wrapper = Manager()->GetOrCreateWrapper(obj);
+     jsval jsargs[argv.Length()];
+     for (PRUint32 i = 0; i < argv.Length(); ++i)
+         if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
+             return false;
  
-     JSVariant override;
-     bool answer = AnswerCall(*rval = wrapper,
--                             argv, ok, &override);
-+                             argv, status, &override);
+     JSObject* obj = JS_New(cx, mObj, argv.Length(), jsargs);
  
-     // Allow the constructor to return a different object from the one
-     // allocated for it by the JS_NewObject call above.
-     if (answer &&
-         override.type() == JSVariant::TPObjectWrapperChild &&
-         (wrapper = override.get_PObjectWrapperChild()))
-         *rval = wrapper;
+-    *ok = !!obj;
++    *status = !!obj;
+     *rval = Manager()->GetOrCreateWrapper(obj);
  
-     return answer;
+     return true;
  }
  
  bool

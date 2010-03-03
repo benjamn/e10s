@@ -1,4 +1,5 @@
 tolerate-browserchrome-failure.diff
+js_new.diff
 cpow.diff
 new-request-model.diff
 test-cpow.diff

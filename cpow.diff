@@ -77,7 +77,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
  #include "nsIDOMEventTarget.h"
  #include "nsIFrame.h"
  #include "nsIFrameFrame.h"
-@@ -113,16 +115,18 @@
+@@ -115,16 +117,18 @@
  #ifdef MOZ_IPC
  #include "ContentProcessParent.h"
  #include "TabParent.h"
@@ -96,7 +96,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
    {
    }
  
-@@ -1530,16 +1534,34 @@ nsFrameLoader::ActivateFrameEvent(const 
+@@ -1542,16 +1546,34 @@ nsFrameLoader::ActivateFrameEvent(const 
    if (mChildProcess) {
      mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
      return NS_OK;
@@ -376,7 +376,7 @@ diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
 diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 --- a/dom/ipc/TabChild.cpp
 +++ b/dom/ipc/TabChild.cpp
-@@ -66,22 +66,30 @@
+@@ -62,29 +62,37 @@
  #include "nsIXPCSecurityManager.h"
  #include "nsIJSContextStack.h"
  #include "nsComponentManagerUtils.h"
@@ -392,6 +392,13 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 +#include "nsIScriptGlobalObject.h"
 +#include "jscntxt.h"
 +
+ #ifdef MOZ_WIDGET_QT
+ #include <QX11EmbedWidget>
+ #include <QApplication>
+ #include <QGraphicsView>
+ #include <QGraphicsWidget>
+ #endif
+ 
  #ifdef MOZ_WIDGET_GTK2
  #include <gdk/gdkx.h>
  #include <gtk/gtk.h>
@@ -407,7 +414,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  #endif
  
  NS_IMPL_ISUPPORTS1(ContentListener, nsIDOMEventListener)
-@@ -372,16 +380,19 @@ TabChild::RecvloadURL(const nsCString& u
+@@ -383,16 +391,19 @@ TabChild::RecvloadURL(const nsCString& u
      printf("loading %s, %d\n", uri.get(), NS_IsMainThread());
  
      nsresult rv = mWebNav->LoadURI(NS_ConvertUTF8toUTF16(uri).get(),
@@ -427,7 +434,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -414,16 +425,47 @@ TabChild::RecvsendMouseEvent(const nsStr
+@@ -425,16 +436,47 @@ TabChild::RecvsendMouseEvent(const nsStr
    nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
@@ -1232,7 +1239,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,496 @@
+@@ -0,0 +1,483 @@
 +#include "mozilla/jsipc/ContextWrapperChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -1686,35 +1693,22 @@ new file mode 100644
 +ObjectWrapperChild::AnswerConstruct(const nsTArray<JSVariant>& argv,
 +                                    JSBool* ok, PObjectWrapperChild** rval)
 +{
++    *ok = JS_FALSE;
++
 +    JSContext* cx = Manager()->GetContext();
 +    JSAutoRequest request(cx);
 +
-+    JSClass* clasp = NULL;
-+    JSObject* pobj = JSVAL_NULL;
-+    {
-+        jsval pval;
-+        if (JS_GetProperty(cx, mObj, "prototype", &pval) &&
-+            JSVAL_IS_OBJECT(pval))
-+        {
-+            pobj = JSVAL_TO_OBJECT(pval);
-+            clasp = JS_GetClass(cx, pobj);
-+        }
-+    }
-+    JSObject* obj = JS_NewObject(cx, clasp, pobj, NULL);
-+    PObjectWrapperChild* wrapper = Manager()->GetOrCreateWrapper(obj);
++    jsval jsargs[argv.Length()];
++    for (PRUint32 i = 0; i < argv.Length(); ++i)
++        if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
++            return false;
 +
-+    JSVariant override;
-+    bool answer = AnswerCall(*rval = wrapper,
-+                             argv, ok, &override);
++    JSObject* obj = JS_New(cx, mObj, argv.Length(), jsargs);
 +
-+    // Allow the constructor to return a different object from the one
-+    // allocated for it by the JS_NewObject call above.
-+    if (answer &&
-+        override.type() == JSVariant::TPObjectWrapperChild &&
-+        (wrapper = override.get_PObjectWrapperChild()))
-+        *rval = wrapper;
++    *ok = !!obj;
++    *rval = Manager()->GetOrCreateWrapper(obj);
 +
-+    return answer;
++    return true;
 +}
 +
 +bool

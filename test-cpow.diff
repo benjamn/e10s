@@ -247,7 +247,7 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_cpow.js
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,232 @@
 +function run_test() {
 +  run_test_in_child("cpow_child.js", run_actual_tests);
 +}
@@ -261,7 +261,8 @@ new file mode 100644
 +  test_inheritance(obj.data.derived);
 +  test_constructor(obj.data.constructor,
 +                   obj.Function,
-+                   obj.Object);
++                   obj.Object,
++                   obj.Date);
 +  test_instanceof(obj.A, obj.B);
 +  test_enumeration(obj.A, obj.B);
 +  test_Array(obj.Array);
@@ -322,7 +323,10 @@ new file mode 100644
 +  do_check_true(base.method === derived.method);
 +}
 +
-+function test_constructor(ctor, ChildFunction, ChildObject) {
++function test_constructor(ctor,
++                          ChildFunction,
++                          ChildObject,
++                          ChildDate) {
 +  var obj = new ctor(42);
 +  obj.check(obj);
 +
@@ -334,6 +338,13 @@ new file mode 100644
 +  proto.method = new ChildFunction("return 'called'");
 +  empty.prototype = proto;
 +  test_inheritance(new empty);
++
++  var cd = new ChildDate,
++      tolerance = 10; // ms
++  do_check_eq(Math.max(Math.abs(cd.getTime() - new Date),
++                       tolerance),
++              tolerance);
++  do_check_true(cd instanceof ChildDate);
 +}
 +
 +function test_enumeration(A, B) {

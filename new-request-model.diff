@@ -436,26 +436,26 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      jsval rv, jsargs[argv.Length()];
      for (PRUint32 i = 0; i < argv.Length(); ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
-@@ -447,17 +491,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
-     return jsval_to_JSVariant(cx, *ok ? rv : JSVAL_VOID, rval);
- }
+@@ -449,17 +493,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
  
  bool
  ObjectWrapperChild::AnswerConstruct(const nsTArray<JSVariant>& argv,
                                      JSBool* ok, PObjectWrapperChild** rval)
  {
+     *ok = JS_FALSE;
+ 
      JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
 +    AutoContextPusher acp(cx);
  
-     JSClass* clasp = NULL;
-     JSObject* pobj = JSVAL_NULL;
-     {
-         jsval pval;
-         if (JS_GetProperty(cx, mObj, "prototype", &pval) &&
-             JSVAL_IS_OBJECT(pval))
-         {
-@@ -483,14 +527,14 @@ ObjectWrapperChild::AnswerConstruct(cons
+     jsval jsargs[argv.Length()];
+     for (PRUint32 i = 0; i < argv.Length(); ++i)
+         if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
+             return false;
+ 
+     JSObject* obj = JS_New(cx, mObj, argv.Length(), jsargs);
+ 
+@@ -470,14 +514,14 @@ ObjectWrapperChild::AnswerConstruct(cons
  }
  
  bool
