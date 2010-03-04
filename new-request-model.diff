@@ -691,7 +691,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
  namespace jsipc {
  
 +class ContextWrapperParent;
-+    
++
  class ObjectWrapperParent
      : public PObjectWrapperParent
  {
