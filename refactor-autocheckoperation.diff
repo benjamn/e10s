@@ -1,0 +1,283 @@
+diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
+--- a/js/src/ipc/CPOWTypes.h
++++ b/js/src/ipc/CPOWTypes.h
+@@ -26,17 +26,17 @@ struct void_t {};
+ //struct null_t {};
+     
+ template <typename P>
+ struct CPOWSingleton
+ {
+     static void Write(Message*, const P&) {}
+     static bool Read(const Message*, void**, P*) { return true; }
+ };
+-    
++
+ } // namespace jsipc
+ } // namespace mozilla
+ 
+ namespace IPC {
+ 
+ using namespace mozilla::jsipc;
+ 
+ template <> struct ParamTraits<void_t> : public CPOWSingleton<void_t> {};
+diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
+--- a/js/src/ipc/ObjectWrapperChild.cpp
++++ b/js/src/ipc/ObjectWrapperChild.cpp
+@@ -47,57 +47,59 @@ namespace {
+                 NS_ASSERTION(NS_SUCCEEDED(rv) && mContext == popped,
+                              "Failed to pop our context");
+             }
+             JS_SetOptions(mContext, mSavedOptions);
+         }
+ 
+     };
+ 
+-    class AutoCheckOperation {
+-
+-        ObjectWrapperChild* const mObjectWrapper;
+-        OperationStatus* const mStatus;
+-
+-        JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
+-
++    class StatusPtrOwner
++    {
++        OperationStatus* mStatusPtr;
+     public:
+-
+-        AutoCheckOperation(ObjectWrapperChild* owc,
+-                           OperationStatus* status
+-                           JS_GUARD_OBJECT_NOTIFIER_PARAM)
+-            : mObjectWrapper(owc)
+-            , mStatus(status)
+-        {
+-            JS_GUARD_OBJECT_NOTIFIER_INIT;
++        StatusPtrOwner() : mStatusPtr(NULL) {}
++        void SetStatusPtr(OperationStatus* statusPtr) {
++            mStatusPtr = statusPtr;
+             // By default, initialize mStatusPtr to failure without an
+             // exception.  Doing so only when the union is uninitialized
+             // allows AutoCheckOperation classes to be nested on the
+             // stack, just in case AnswerConstruct, for example, calls
+             // AnswerCall (as it once did, before there were unrelated
+-            // problems with that approach ;).
+-            if (mStatus->type() == OperationStatus::T__None)
+-                *mStatus = JS_FALSE;
++            // problems with that approach).
++            if (mStatusPtr->type() == OperationStatus::T__None)
++                *mStatusPtr = JS_FALSE;
+         }
++        OperationStatus* StatusPtr() {
++            NS_ASSERTION(mStatusPtr, "Should have called SetStatusPtr by now.");
++            return mStatusPtr;
++        }
++    };
+ 
+-        ~AutoCheckOperation() {
+-            mObjectWrapper->CheckOperation(mStatus);
++    typedef AutoCheckOperationBase<StatusPtrOwner> ACOBase;
++
++    class AutoCheckOperation : public ACOBase
++    {
++        JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
++    public:
++        AutoCheckOperation(ObjectWrapperChild* owc,
++                           OperationStatus* statusPtr
++                           JS_GUARD_OBJECT_NOTIFIER_PARAM)
++            : ACOBase(NULL, owc)
++        {
++            JS_GUARD_OBJECT_NOTIFIER_INIT;
++            SetStatusPtr(statusPtr);
+         }
+-
+-        bool Ok() {
+-            return (mStatus->type() == OperationStatus::TJSBool &&
+-                    mStatus->get_JSBool());
+-        }
+-
+     };
+ 
+ }
+ 
+ void
+-ObjectWrapperChild::CheckOperation(OperationStatus* status)
++ObjectWrapperChild::CheckOperation(JSContext*,
++                                   OperationStatus* status)
+ {
+     NS_PRECONDITION(status->type() != OperationStatus::T__None,
+                     "Checking an uninitialized operation.");
+ 
+     JSContext* cx = Manager()->GetContext();
+     jsval thrown;
+ 
+     if (JS_GetPendingException(cx, &thrown)) {
+diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
+--- a/js/src/ipc/ObjectWrapperChild.h
++++ b/js/src/ipc/ObjectWrapperChild.h
+@@ -1,30 +1,32 @@
+ #ifndef mozilla_jsipc_ObjectWrapperChild_h__
+ #define mozilla_jsipc_ObjectWrapperChild_h__
+ 
+ #include "mozilla/jsipc/PObjectWrapperChild.h"
++#include "mozilla/jsipc/ObjectWrapperParent.h" // for OperationChecker
+ 
+ using mozilla::jsipc::JSVariant;
+ 
+ namespace mozilla {
+ namespace jsipc {
+ 
+ class ContextWrapperChild;
+ 
+ class ObjectWrapperChild
+     : public PObjectWrapperChild
++    , public OperationChecker
+ {
+ public:
+ 
+     ObjectWrapperChild(JSContext* cx, JSObject* obj);
+ 
+     JSObject* GetJSObject() const { return mObj; }
+ 
+-    void CheckOperation(OperationStatus* status);
++    void CheckOperation(JSContext* cx, OperationStatus* status);
+     
+ private:
+ 
+     JSObject* const mObj;
+ 
+     bool JSObject_to_JSVariant(JSContext* cx, JSObject* from, JSVariant* to);
+     bool jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to);
+ 
+diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
+--- a/js/src/ipc/ObjectWrapperParent.cpp
++++ b/js/src/ipc/ObjectWrapperParent.cpp
+@@ -58,48 +58,39 @@ namespace {
+         }
+ 
+         static JSBool IsSet(JSContext* cx, JSObject* obj) {
+             return GetFlags(cx, obj) & CPOW_FLAG_RESOLVING;
+         }
+ 
+     };
+ 
+-    class AutoCheckOperation
++    class StatusMemberOwner
+     {
+-        JSContext* const mContext;
+-        ObjectWrapperParent* const mObjectWrapper;
+         OperationStatus mStatus;
++    public:
++        StatusMemberOwner() : mStatus(JS_FALSE) {}
++        OperationStatus* StatusPtr() {
++            return &mStatus;
++        }
++    };
++
++    typedef AutoCheckOperationBase<StatusMemberOwner> ACOBase;
++
++    class AutoCheckOperation : public ACOBase
++    {
+         JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
+-
+     public:
+-
+         AutoCheckOperation(JSContext* cx,
+                            ObjectWrapperParent* owp
+                            JS_GUARD_OBJECT_NOTIFIER_PARAM)
+-            : mContext(cx)
+-            , mObjectWrapper(owp)
+-            , mStatus(JS_FALSE)
++            : ACOBase(cx, owp)
+         {
+             JS_GUARD_OBJECT_NOTIFIER_INIT;
+         }
+-
+-        ~AutoCheckOperation() {
+-            mObjectWrapper->CheckOperation(mContext, &mStatus);
+-        }
+-
+-        OperationStatus* StatusPtr() {
+-            return &mStatus;
+-        }
+-
+-        bool Ok() {
+-            return (mStatus.type() == OperationStatus::TJSBool &&
+-                    mStatus.get_JSBool());
+-        }
+-
+     };
+ 
+ }
+ 
+ void
+ ObjectWrapperParent::CheckOperation(JSContext* cx,
+                                     OperationStatus* status)
+ {
+diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
+--- a/js/src/ipc/ObjectWrapperParent.h
++++ b/js/src/ipc/ObjectWrapperParent.h
+@@ -5,18 +5,25 @@
+ #include "jsapi.h"
+ #include "nsAutoJSValHolder.h"
+ 
+ namespace mozilla {
+ namespace jsipc {
+ 
+ class ContextWrapperParent;
+ 
++class OperationChecker {
++public:
++    virtual void CheckOperation(JSContext* cx,
++                                OperationStatus* status) = 0;
++};
++
+ class ObjectWrapperParent
+     : public PObjectWrapperParent
++    , public OperationChecker
+ {
+ public:
+ 
+     ObjectWrapperParent()
+         : mObj(NULL)
+     {}
+ 
+     JSObject* GetJSObject(JSContext* cx) const;
+@@ -94,11 +101,38 @@ private:
+                                        const PObjectWrapperParent* from,
+                                        JSObject** to);
+     static bool
+     jsval_from_PObjectWrapperParent(JSContext* cx,
+                                     const PObjectWrapperParent* from,
+                                     jsval* to);
+ };
+ 
++template <class StatusOwnerPolicy>
++class AutoCheckOperationBase
++    : public StatusOwnerPolicy
++{
++    JSContext* const mContext;
++    OperationChecker* const mChecker;
++
++protected:
++
++    AutoCheckOperationBase(JSContext* cx,
++                           OperationChecker* checker)
++        : mContext(cx)
++        , mChecker(checker)
++    {}
++
++    virtual ~AutoCheckOperationBase() {
++        mChecker->CheckOperation(mContext, StatusOwnerPolicy::StatusPtr());
++    }
++
++public:
++
++    bool Ok() {
++        return (StatusOwnerPolicy::StatusPtr()->type() == OperationStatus::TJSBool &&
++                StatusOwnerPolicy::StatusPtr()->get_JSBool());
++    }
++};
++
+ }}
+-  
++
+ #endif
