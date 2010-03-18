@@ -11,6 +11,5 @@ jdm-cpow-feedback.diff
 new-request-model.diff
 test-cpow.diff
 cpow-exceptions.diff
-refactor-autocheckoperation.diff
 parent-side-exceptions.diff
 more-tests.diff
