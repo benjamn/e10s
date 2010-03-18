@@ -30,44 +30,34 @@ diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -13,46 +13,110 @@ using namespace mozilla::jsipc;
+@@ -12,34 +12,99 @@
+ using namespace mozilla::jsipc;
  
  namespace {
  
      class AutoContextPusher {
  
-         JSContext* const mContext;
-         nsRefPtr<nsIThreadJSContextStack> mStack;
+         nsCxPusher mStack;
          JSAutoRequest mRequest;
++        JSContext* const mContext;
 +        const uint32 mSavedOptions;
- 
          JS_DECL_USE_GUARD_OBJECT_NOTIFIER;
  
      public:
  
          AutoContextPusher(JSContext* cx
                            JS_GUARD_OBJECT_NOTIFIER_PARAM)
-             : mContext(cx)
-             , mStack(nsContentUtils::ThreadJSContextStack())
-             , mRequest(cx)
+             : mRequest(cx)
++            , mContext(cx)
 +            , mSavedOptions(JS_SetOptions(cx, (JS_GetOptions(cx) |
 +                                               JSOPTION_DONT_REPORT_UNCAUGHT)))
          {
              JS_GUARD_OBJECT_NOTIFIER_INIT;
-             if (mStack) {
-                 nsresult rv = mStack->Push(mContext);
-                 NS_ASSERTION(NS_SUCCEEDED(rv), "Failed to push our context");
-             }
+             mStack.Push(cx);
          }
  
          ~AutoContextPusher() {
-             if (mStack) {
-                 JSContext* popped;
-                 nsresult rv =
-                     nsContentUtils::ThreadJSContextStack()->Pop(&popped);
-                 NS_ASSERTION(NS_SUCCEEDED(rv) && mContext == popped,
-                              "Failed to pop our context");
-             }
+             mStack.Pop();
 +            JS_SetOptions(mContext, mSavedOptions);
          }
  
@@ -110,7 +100,6 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +            SetStatusPtr(statusPtr);
 +        }
 +    };
-+
 +}
 +
 +void
@@ -141,7 +130,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSAutoRequest request(cx);
  #ifdef DEBUG
      bool added =
-@@ -223,98 +287,95 @@ ObjectWrapperChild::AnswerSomething(/* i
+@@ -210,98 +275,95 @@ ObjectWrapperChild::AnswerSomething(/* i
  // There's an important subtlety here: though a local JS operation may
  // fail, leaving out-parameters uninitialized, we must initialize all
  // out-parameters when reporting success (returning true) to the IPC
@@ -256,7 +245,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  static void
  CPOW_NewEnumerateState_Finalize(JSContext* cx, JSObject* state)
  {
-@@ -336,23 +397,23 @@ static const JSClass sCPOW_NewEnumerateS
+@@ -323,23 +385,23 @@ static const JSClass sCPOW_NewEnumerateS
      JS_PropertyStub,  JS_PropertyStub,
      JS_EnumerateStub, JS_ResolveStub,
      JS_ConvertStub,   CPOW_NewEnumerateState_Finalize,
@@ -282,7 +271,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSAutoTempValueRooter tvr(cx, state);
      
      for (JSObject* proto = mObj;
-@@ -372,56 +433,56 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+@@ -359,56 +421,56 @@ ObjectWrapperChild::AnswerNewEnumerateIn
              return false;
          strIds = new nsTArray<nsString>(ids.length());
          for (uint i = 0; i < ids.length(); ++i)
@@ -348,7 +337,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      JSObject* state;
  
-@@ -439,107 +500,107 @@ ObjectWrapperChild::RecvNewEnumerateDest
+@@ -426,107 +488,107 @@ ObjectWrapperChild::RecvNewEnumerateDest
          JS_SetPrivate(cx, state, NULL);
      }
  
