@@ -1,0 +1,197 @@
+diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
+--- a/js/src/ipc/ObjectWrapperChild.cpp
++++ b/js/src/ipc/ObjectWrapperChild.cpp
+@@ -1,12 +1,13 @@
+ #include "mozilla/jsipc/ContextWrapperChild.h"
+ #include "mozilla/jsipc/ObjectWrapperChild.h"
+ #include "mozilla/jsipc/CPOWTypes.h"
+ 
++#include "jscntxt.h"
+ #include "nsTArray.h"
+ 
+ using namespace mozilla::jsipc;
+ 
+ ObjectWrapperChild::ObjectWrapperChild(JSContext* cx, JSObject* obj)
+     : mObj(obj)
+ {
+     JSAutoRequest request(cx);
+@@ -270,20 +271,22 @@ ObjectWrapperChild::AnswerDelProperty(co
+ 
+ static const PRUint32 sIdArraySlot = 0, sNextIdIndexSlot = 1;
+ static const PRUint32 sNumNewEnumerateStateSlots = 2;
+ 
+ static void
+ CPOW_NewEnumerateState_Finalize(JSContext* cx, JSObject* state)
+ {
+     jsval v;
+-    JSIdArray* ids;
++    JSAutoIdArray* idap;
+     if (JS_GetReservedSlot(cx, state, sIdArraySlot, &v) &&
+-        (ids = static_cast<JSIdArray*>(JSVAL_TO_PRIVATE(v))))
+-        JS_DestroyIdArray(cx, ids);
++        (idap = static_cast<JSAutoIdArray*>(JSVAL_TO_PRIVATE(v)))) {
++        delete idap;
++        JS_SetReservedSlot(cx, state, sIdArraySlot, JSVAL_NULL);
++    }
+ }
+ 
+ // Similar to IteratorClass in XPCWrapper.cpp
+ static const JSClass sCPOW_NewEnumerateState_JSClass = {
+     "CPOW NewEnumerate State",
+     JSCLASS_HAS_RESERVED_SLOTS(sNumNewEnumerateStateSlots),
+     JS_PropertyStub,  JS_PropertyStub,
+     JS_PropertyStub,  JS_PropertyStub,
+@@ -301,92 +304,105 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+ 
+     JSContext* cx = Manager()->GetContext();
+     JSAutoRequest request(cx);
+ 
+     JSClass* clasp = const_cast<JSClass*>(&sCPOW_NewEnumerateState_JSClass);
+     JSObject* state = JS_NewObjectWithGivenProto(cx, clasp, NULL, NULL);
+     if (!state)
+         return false;
++    JSAutoTempValueRooter tvr(cx, state);
+     
+     for (JSObject* proto = mObj;
+          proto;
+          proto = JS_GetPrototype(cx, proto))
+     {
+-        JSIdArray* ids = JS_Enumerate(cx, proto);
+-        for (jsint i = 0; i < ids->length; ++i)
+-            JS_DefinePropertyById(cx, state, ids->vector[i], JSVAL_VOID,
++        JSAutoIdArray ids(cx, JS_Enumerate(cx, proto));
++        for (jsint i = 0; i < ids.length(); ++i)
++            JS_DefinePropertyById(cx, state, ids[i], JSVAL_VOID,
+                                   NULL, NULL, JSPROP_ENUMERATE | JSPROP_SHARED);
+-        JS_DestroyIdArray(cx, ids);
+     }
+ 
+     JSIdArray* ids = JS_Enumerate(cx, state);
+     if (!ids)
+         return false;
++    JSAutoIdArray* idap = new JSAutoIdArray(cx, ids);
+ 
+-    *idp = ids->length;
++    *idp = idap->length();
+ 
+     *ok = (JS_SetReservedSlot(cx, state, sIdArraySlot,
+-                              PRIVATE_TO_JSVAL(ids)) &&
++                              PRIVATE_TO_JSVAL(idap)) &&
+            JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
+                               JSVAL_ZERO) &&
+            JSObject_to_JSVariant(cx, state, statep));
+ 
+     return true;
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerNewEnumerateNext(const JSVariant& in_state,
+                                            JSBool* ok, JSVariant* statep, nsString* idp)
+ {
+     JSObject* state;
+     jsval v;
+-    JSIdArray* ids;
++    JSAutoIdArray* idap;
+     JSString* str;
+ 
+     *ok = JS_FALSE;
+     *statep = in_state;
+     *idp = EmptyString();
+     
+     JSContext* cx = Manager()->GetContext();
+     JSAutoRequest request(cx);
+ 
+     if (!JSObject_from_JSVariant(cx, in_state, &state) ||
+         !JS_GetReservedSlot(cx, state, sIdArraySlot, &v) ||
+-        !(ids = static_cast<JSIdArray*>(JSVAL_TO_PRIVATE(v))) ||
++        !(idap = static_cast<JSAutoIdArray*>(JSVAL_TO_PRIVATE(v))) ||
+         !JS_GetReservedSlot(cx, state, sNextIdIndexSlot, &v))
+         return false;
+ 
+     int i = JSVAL_TO_INT(v);
+-    if (i >= ids->length) {
++    if (i >= idap->length()) {
+         *ok = JS_TRUE;
+         return JSObject_to_JSVariant(cx, NULL, statep);
+     }
+ 
+-    if (!JS_IdToValue(cx, ids->vector[i], &v) ||
++    if (!JS_IdToValue(cx, (*idap)[i], &v) ||
+         !(str = JS_ValueToString(cx, v)))
+     {
+         *ok = JS_FALSE;
+         return true;
+     }
+ 
+     *idp = JS_GetStringChars(str);
+     *ok = JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
+                              INT_TO_JSVAL(i + 1));
+     return true;
+ }
+     
+ bool
+ ObjectWrapperChild::RecvNewEnumerateDestroy(const JSVariant& in_state)
+ {
+     JSObject* state;
++    jsval v;
++    JSAutoIdArray* idap;
++
+     JSContext* cx = Manager()->GetContext();
+     JSAutoRequest request(cx);
+-    return (JSObject_from_JSVariant(cx, in_state, &state) &&
+-            JS_SetReservedSlot(cx, state, sIdArraySlot, JSVAL_ZERO));
++
++    if (!JSObject_from_JSVariant(cx, in_state, &state))
++        return false;
++    
++    if (JS_GetReservedSlot(cx, state, sIdArraySlot, &v) &&
++        (idap = static_cast<JSAutoIdArray*>(JSVAL_TO_PRIVATE(v)))) {
++        delete idap;
++        JS_SetReservedSlot(cx, state, sIdArraySlot, JSVAL_NULL);
++    }
++
++    return true;
+ }
+ 
+ bool
+ ObjectWrapperChild::AnswerNewResolve(const nsString& id, const int& flags,
+                                      JSBool* ok, PObjectWrapperChild** obj2)
+ {
+     jsid interned_id;
+     
+@@ -434,16 +450,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+     JSContext* cx = Manager()->GetContext();
+     JSAutoRequest request(cx);
+ 
+     JSObject* obj;
+     if (!JSObject_from_PObjectWrapperChild(cx, receiver, &obj))
+         return false;
+ 
+     jsval rv, jsargs[argv.Length()];
++    JSAutoTempValueRooter tvr(cx, argv.Length(), jsargs);
+     for (PRUint32 i = 0; i < argv.Length(); ++i)
+         if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
+             return false;
+ 
+     *ok = JS_CallFunctionValue(cx, obj, OBJECT_TO_JSVAL(mObj),
+                                argv.Length(), jsargs, &rv);
+ 
+     return jsval_to_JSVariant(cx, *ok ? rv : JSVAL_VOID, rval);
+@@ -454,16 +471,17 @@ ObjectWrapperChild::AnswerConstruct(cons
+                                     JSBool* ok, PObjectWrapperChild** rval)
+ {
+     *ok = JS_FALSE;
+ 
+     JSContext* cx = Manager()->GetContext();
+     JSAutoRequest request(cx);
+ 
+     jsval jsargs[argv.Length()];
++    JSAutoTempValueRooter tvr(cx, argv.Length(), jsargs);
+     for (PRUint32 i = 0; i < argv.Length(); ++i)
+         if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
+             return false;
+ 
+     JSObject* obj = JS_New(cx, mObj, argv.Length(), jsargs);
+ 
+     *ok = !!obj;
+     *rval = Manager()->GetOrCreateWrapper(obj);

@@ -1,0 +1,242 @@
+diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
+--- a/js/src/ipc/CPOWTypes.h
++++ b/js/src/ipc/CPOWTypes.h
+@@ -18,34 +18,34 @@ struct CPOWConvertible
+     static bool Read(const Message* m, void** iter, Type* tp) {
+         As a;
+         return (ReadParam(m, iter, &a) &&
+                 (*tp = Type(a), true));
+     }
+ };
+ 
+ struct void_t {};
+-struct null_t {};
++//struct null_t {};
+     
+ template <typename P>
+ struct CPOWSingleton
+ {
+     static void Write(Message*, const P&) {}
+     static bool Read(const Message*, void**, P*) { return true; }
+ };
+     
+ } // namespace jsipc
+ } // namespace mozilla
+ 
+ namespace IPC {
+ 
+ using namespace mozilla::jsipc;
+ 
+ template <> struct ParamTraits<void_t> : public CPOWSingleton<void_t> {};
+-template <> struct ParamTraits<null_t> : public CPOWSingleton<null_t> {};
++//template <> struct ParamTraits<null_t> : public CPOWSingleton<null_t> {};
+ 
+ template <> struct ParamTraits<JSType> : public CPOWConvertible<JSType, int> {};
+ // We already seem to know how to serialize JSBools, huh.
+ // template <> struct ParamTraits<JSBool> : public CPOWConvertible<JSBool, bool> {};
+  
+ }
+ 
+ // TODO Use a more standard logging mechanism.
+diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
+--- a/js/src/ipc/ObjectWrapperChild.cpp
++++ b/js/src/ipc/ObjectWrapperChild.cpp
+@@ -37,36 +37,38 @@ ObjectWrapperChild::JSObject_to_JSVarian
+ 
+ bool
+ ObjectWrapperChild::jsval_to_JSVariant(JSContext* cx, jsval from, JSVariant* to)
+ {
+     switch (JS_TypeOfValue(cx, from)) {
+     case JSTYPE_VOID:
+         *to = void_t();
+         return true;
++    case JSTYPE_NULL:
++        if (from != JSVAL_NULL)
++            return false;
++        // fall through
+     case JSTYPE_FUNCTION:
++        // fall through
+     case JSTYPE_OBJECT:
+         return JSObject_to_JSVariant(cx, JSVAL_TO_OBJECT(from), to);
+     case JSTYPE_STRING:
+         *to = nsDependentString((PRUnichar*)JS_GetStringChars(JSVAL_TO_STRING(from)),
+                                 JS_GetStringLength(JSVAL_TO_STRING(from)));
+         return true;
+     case JSTYPE_NUMBER:
+         if (JSVAL_IS_INT(from))
+             *to = JSVAL_TO_INT(from);
+         else if (JSVAL_IS_DOUBLE(from))
+             *to = *JSVAL_TO_DOUBLE(from);
+         else return false;
+         return true;
+     case JSTYPE_BOOLEAN:
+         *to = !!JSVAL_TO_BOOLEAN(from);
+         return true;
+-    case JSTYPE_NULL:
+-        *to = null_t();
+-        return true;
+     case JSTYPE_XML:
+         // fall through
+     default:
+         return false;
+     }
+ }
+ 
+ /*static*/ bool
+@@ -123,19 +125,16 @@ ObjectWrapperChild::jsval_from_JSVariant
+     case JSVariant::Tint:
+         *to = INT_TO_JSVAL(from.get_int());
+         return true;
+     case JSVariant::Tdouble:
+         return !!JS_NewDoubleValue(cx, from.get_double(), to);
+     case JSVariant::Tbool:
+         *to = BOOLEAN_TO_JSVAL(from.get_bool());
+         return true;
+-    case JSVariant::Tnull_t:
+-        *to = JSVAL_NULL;
+-        return true;
+     default:
+         return false;
+     }
+ }
+     
+ ContextWrapperChild*
+ ObjectWrapperChild::Manager()
+ {
+diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
+--- a/js/src/ipc/ObjectWrapperParent.cpp
++++ b/js/src/ipc/ObjectWrapperParent.cpp
+@@ -134,24 +134,28 @@ Unwrap(JSContext* cx, JSObject* obj)
+ /*static*/ bool
+ ObjectWrapperParent::jsval_to_JSVariant(JSContext* cx, jsval from,
+                                         JSVariant* to)
+ {
+     switch (JS_TypeOfValue(cx, from)) {
+     case JSTYPE_VOID:
+         *to = void_t();
+         return true;
++    case JSTYPE_NULL:
++        if (from != JSVAL_NULL)
++            return false;
++        // fall through
+     case JSTYPE_OBJECT:
+         {
+             PObjectWrapperParent* powp;
+             if (!JSObject_to_PObjectWrapperParent(cx, JSVAL_TO_OBJECT(from), &powp))
+                 return false;
+             *to = powp;
+-            return true;
+         }
++        return true;
+     case JSTYPE_FUNCTION:
+         // CPOW-wrapped functions have JSTYPE_OBJECT, so this function
+         // must be unknown to the child process.
+         return false;
+     case JSTYPE_STRING:
+         *to = nsDependentString((PRUnichar*)JS_GetStringChars(JSVAL_TO_STRING(from)),
+                                 JS_GetStringLength(JSVAL_TO_STRING(from)));
+         return true;
+@@ -160,18 +164,16 @@ ObjectWrapperParent::jsval_to_JSVariant(
+             *to = JSVAL_TO_INT(from);
+         else if (JSVAL_IS_DOUBLE(from))
+             *to = *JSVAL_TO_DOUBLE(from);
+         else return false;
+         return true;
+     case JSTYPE_BOOLEAN:
+         *to = !!JSVAL_TO_BOOLEAN(from);
+         return true;
+-    case JSTYPE_NULL:
+-        *to = null_t();
+     case JSTYPE_XML:
+     default:
+         return false;
+     }
+ }
+ 
+ /*static*/ bool
+ ObjectWrapperParent::jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
+@@ -194,29 +196,30 @@ ObjectWrapperParent::jsval_from_JSVarian
+     case JSVariant::Tint:
+         *to = INT_TO_JSVAL(from.get_int());
+         return true;
+     case JSVariant::Tdouble:
+         return !!JS_NewDoubleValue(cx, from.get_double(), to);
+     case JSVariant::Tbool:
+         *to = BOOLEAN_TO_JSVAL(from.get_bool());
+         return true;
+-    case JSVariant::Tnull_t:
+-        *to = JSVAL_NULL;
+-        return true;
+     default:
+         return false;
+     }
+ }
+ 
+ /*static*/ bool
+ ObjectWrapperParent::
+ JSObject_to_PObjectWrapperParent(JSContext* cx, JSObject* from,
+                                  PObjectWrapperParent** to)
+ {
++    if (!from) {
++        *to = NULL;
++        return true;
++    }
+     ObjectWrapperParent* owp = Unwrap(cx, from);
+     if (!owp)
+         return false;
+     *to = owp;
+     return true;
+ }
+ 
+ /*static*/ bool
+diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
+--- a/js/src/ipc/PObjectWrapper.ipdl
++++ b/js/src/ipc/PObjectWrapper.ipdl
+@@ -1,29 +1,27 @@
+ include protocol "PContextWrapper.ipdl";
+ 
+ include "mozilla/jsipc/CPOWTypes.h";
+ 
+ using mozilla::jsipc::void_t;
+-using mozilla::jsipc::null_t;
+ using JSType;
+ using JSBool;
+ 
+ namespace mozilla {
+ namespace jsipc {
+ 
+ union JSVariant {
+     void_t;
+     nullable PObjectWrapper;
+     nsString;
+     int;
+     double;
+     bool; // We'd like to use JSBool here, but JSBool is really JSIntn,
+           // and IPC::ParamTraits mistakes JSIntn for int.
+-    null_t;
+ };
+ 
+ rpc protocol PObjectWrapper
+ {
+     manager PContextWrapper;
+ 
+ child:
+     __delete__(); // unroot
+@@ -67,16 +65,16 @@ child:
+ 
+     rpc Call(PObjectWrapper receiver,
+              JSVariant[] argv)
+         returns (JSBool ok,
+                  JSVariant rval);
+ 
+     rpc Construct(JSVariant[] argv)
+         returns (JSBool ok,
+-                 PObjectWrapper rval);
++                 nullable PObjectWrapper rval);
+ 
+     rpc HasInstance(JSVariant v)
+         returns (JSBool ok,
+                  JSBool bp);
+ };
+ 
+ }}

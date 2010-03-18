@@ -1,6 +1,11 @@
+493748-AAv1_test-path.diff
+xpcshell-ipc-fix.diff
 tolerate-browserchrome-failure.diff
 js_new.diff
 cpow.diff
+jst-cpow-comments.diff
+bent-cpow-comments.diff
+jdm-cpow-feedback.diff
 new-request-model.diff
 test-cpow.diff
 cpow-exceptions.diff

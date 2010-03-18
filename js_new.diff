@@ -3,7 +3,7 @@ Bug 480850 - JSAPI should support creating objects given a constructor Function.
 diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
 --- a/js/src/jsapi.cpp
 +++ b/js/src/jsapi.cpp
-@@ -2996,16 +2996,35 @@ JS_ConstructObjectWithArguments(JSContex
+@@ -2820,16 +2820,36 @@ JS_ConstructObjectWithArguments(JSContex
                                  JSObject *parent, uintN argc, jsval *argv)
  {
      CHECK_REQUEST(cx);
@@ -15,8 +15,9 @@ diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
 +JS_PUBLIC_API(JSObject *)
 +JS_New(JSContext *cx, JSObject *ctor, uintN argc, jsval *argv)
 +{
-+    CHECK_REQUEST(cx);
 +    void *mark;
++
++    CHECK_REQUEST(cx);
 +    jsval *vp = js_AllocStack(cx, 2 + argc, &mark);
 +    if (!vp)
 +        return NULL;
@@ -42,7 +43,7 @@ diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
 diff --git a/js/src/jsapi.h b/js/src/jsapi.h
 --- a/js/src/jsapi.h
 +++ b/js/src/jsapi.h
-@@ -1695,16 +1695,19 @@ extern JS_PUBLIC_API(JSObject *)
+@@ -1674,16 +1674,19 @@ extern JS_PUBLIC_API(JSObject *)
  JS_ConstructObject(JSContext *cx, JSClass *clasp, JSObject *proto,
                     JSObject *parent);
  
