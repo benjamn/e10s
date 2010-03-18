@@ -1,13 +1,24 @@
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -94,16 +94,34 @@ namespace {
-             return (mStatus.type() == OperationStatus::TJSBool &&
-                     mStatus.get_JSBool());
+@@ -102,26 +102,44 @@ ObjectWrapperParent::CheckOperation(JSCo
+         {
+             jsval thrown;
+             if (jsval_from_JSVariant(cx, status->get_JSVariant(), &thrown))
+                 JS_SetPendingException(cx, thrown);
+             *status = JS_FALSE;
          }
- 
-     };
- 
+         break;
+     case OperationStatus::TJSBool:
+-        if (!status->get_JSBool()) {
++        if (!status->get_JSBool() && !JS_IsExceptionPending(cx)) {
+             NS_WARNING("CPOW operation failed without setting an exception.");
+         }
+         break;
+     default:
+         NS_NOTREACHED("Invalid or uninitialized OperationStatus type.");
+         break;
+     }
  }
  
 +template <typename RType>
@@ -28,35 +39,15 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 +    return rval;
 +}
 +
- void
- ObjectWrapperParent::CheckOperation(JSContext* cx,
-                                     OperationStatus* status)
- {
-     NS_PRECONDITION(status->type() != OperationStatus::T__None,
-                     "Checking an uninitialized operation.");
- 
-     switch (status->type()) {
-@@ -111,17 +129,18 @@ ObjectWrapperParent::CheckOperation(JSCo
-         {
-             jsval thrown;
-             if (jsval_from_JSVariant(cx, status->get_JSVariant(), &thrown))
-                 JS_SetPendingException(cx, thrown);
-             *status = JS_FALSE;
-         }
-         break;
-     case OperationStatus::TJSBool:
--        NS_ASSERTION(status->get_JSBool(), "Failed without setting an exception.");
-+        if (!status->get_JSBool() && !JS_IsExceptionPending(cx))
-+            NS_WARNING("CPOW operation failed without setting an exception");
-         break;
-     default:
-         NS_NOTREACHED("Invalid or uninitialized OperationStatus type.");
-         break;
-     }
- }
- 
  const JSExtendedClass ObjectWrapperParent::sCPOW_JSClass = {
-@@ -204,45 +223,46 @@ ObjectWrapperParent::jsval_to_JSVariant(
+     // JSClass (JSExtendedClass.base) initialization
+     { "CrossProcessObjectWrapper",
+       JSCLASS_NEW_RESOLVE | JSCLASS_NEW_ENUMERATE | JSCLASS_IS_EXTENDED |
+       JSCLASS_HAS_PRIVATE | JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
+       ObjectWrapperParent::CPOW_AddProperty,
+       ObjectWrapperParent::CPOW_DelProperty,
+       ObjectWrapperParent::CPOW_GetProperty,
+@@ -197,45 +215,46 @@ ObjectWrapperParent::jsval_to_JSVariant(
      switch (JS_TypeOfValue(cx, from)) {
      case JSTYPE_VOID:
          *to = void_t();
@@ -109,7 +100,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
                                            jsval* to)
  {
      switch (from.type()) {
-@@ -250,30 +270,32 @@ ObjectWrapperParent::jsval_from_JSVarian
+@@ -243,30 +262,32 @@ ObjectWrapperParent::jsval_from_JSVarian
          *to = JSVAL_VOID;
          return true;
      case JSVariant::TPObjectWrapperParent:
@@ -145,7 +136,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  JSObject_to_PObjectWrapperParent(JSContext* cx, JSObject* from,
                                   PObjectWrapperParent** to)
  {
-@@ -305,35 +327,35 @@ JSObject_from_PObjectWrapperParent(JSCon
+@@ -298,35 +319,35 @@ JSObject_from_PObjectWrapperParent(JSCon
  /*static*/ bool
  ObjectWrapperParent::
  jsval_from_PObjectWrapperParent(JSContext* cx,
@@ -186,7 +177,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      JSString* str;
      if ((str = JS_ValueToString(cx, from))) {
          *to = JS_GetStringChars(str);
-@@ -346,52 +368,55 @@ jsval_to_nsString(JSContext* cx, jsval f
+@@ -339,52 +360,55 @@ jsval_to_nsString(JSContext* cx, jsval f
  ObjectWrapperParent::CPOW_AddProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
  {
@@ -247,7 +238,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
              aco.Ok() &&
              self->jsval_from_JSVariant(cx, out_v, vp));
  }
-@@ -400,27 +425,31 @@ ObjectWrapperParent::CPOW_GetProperty(JS
+@@ -393,27 +417,31 @@ ObjectWrapperParent::CPOW_GetProperty(JS
  ObjectWrapperParent::CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
  {
@@ -283,7 +274,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
              aco.Ok() &&
              self->jsval_from_JSVariant(cx, out_v, vp));
  }    
-@@ -429,25 +458,26 @@ ObjectWrapperParent::CPOW_SetProperty(JS
+@@ -422,25 +450,26 @@ ObjectWrapperParent::CPOW_SetProperty(JS
  ObjectWrapperParent::CPOW_DelProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
  {
@@ -313,7 +304,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
              aco.Ok() &&
              jsval_from_JSVariant(cx, out_v, vp));
  }
-@@ -469,18 +499,18 @@ ObjectWrapperParent::NewEnumerateInit(JS
+@@ -462,18 +491,18 @@ ObjectWrapperParent::NewEnumerateInit(JS
  JSBool
  ObjectWrapperParent::NewEnumerateNext(JSContext* cx, jsval* statep, jsid* idp)
  {
@@ -334,7 +325,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
          aco.Ok() &&
          jsval_from_JSVariant(cx, out_state, statep) &&
          jsid_from_nsString(cx, out_id, idp))
-@@ -510,48 +540,51 @@ ObjectWrapperParent::NewEnumerateDestroy
+@@ -503,48 +532,51 @@ ObjectWrapperParent::NewEnumerateDestroy
  ObjectWrapperParent::CPOW_NewEnumerate(JSContext *cx, JSObject *obj,
                                         JSIterateOp enum_op, jsval *statep,
                                         jsid *idp)
@@ -391,7 +382,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
                                aco.StatusPtr(), &out_pobj) ||
          !aco.Ok() ||
          !JSObject_from_PObjectWrapperParent(cx, out_pobj, objp))
-@@ -571,17 +604,18 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
+@@ -564,17 +596,18 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
  ObjectWrapperParent::CPOW_Convert(JSContext *cx, JSObject *obj, JSType type,
                                    jsval *vp)
  {
@@ -411,7 +402,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
  /*static*/ void
  ObjectWrapperParent::CPOW_Finalize(JSContext* cx, JSObject* obj)
-@@ -597,34 +631,36 @@ ObjectWrapperParent::CPOW_Finalize(JSCon
+@@ -590,34 +623,36 @@ ObjectWrapperParent::CPOW_Finalize(JSCon
  ObjectWrapperParent::CPOW_Call(JSContext* cx, JSObject* obj, uintN argc,
                                 jsval* argv, jsval* rval)
  {
@@ -451,7 +442,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
              aco.Ok() &&
              jsval_from_JSVariant(cx, out_rval, rval));
  }
-@@ -633,24 +669,27 @@ ObjectWrapperParent::CPOW_Call(JSContext
+@@ -626,24 +661,27 @@ ObjectWrapperParent::CPOW_Call(JSContext
  ObjectWrapperParent::CPOW_Construct(JSContext *cx, JSObject *obj, uintN argc,
                                      jsval *argv, jsval *rval)
  {
@@ -481,7 +472,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
                                         aco.StatusPtr(), &out_powp) &&
              aco.Ok() &&
              jsval_from_PObjectWrapperParent(cx, out_powp, rval));
-@@ -661,24 +700,26 @@ ObjectWrapperParent::CPOW_HasInstance(JS
+@@ -654,24 +692,26 @@ ObjectWrapperParent::CPOW_HasInstance(JS
                                        JSBool *bp)
  {
      CPOW_LOG(("Calling CPOW_HasInstance..."));
@@ -510,7 +501,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  }
  
  /*static*/ JSBool
-@@ -686,17 +727,18 @@ ObjectWrapperParent::CPOW_Equality(JSCon
+@@ -679,17 +719,18 @@ ObjectWrapperParent::CPOW_Equality(JSCon
                                     JSBool *bp)
  {
      CPOW_LOG(("Calling CPOW_Equality..."));

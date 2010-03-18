@@ -8,7 +8,7 @@ imported patch cpow-exceptions.diff
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -13,46 +13,102 @@ using namespace mozilla::jsipc;
+@@ -13,46 +13,108 @@ using namespace mozilla::jsipc;
  
  namespace {
  
@@ -67,6 +67,12 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +            , mStatus(status)
 +        {
 +            JS_GUARD_OBJECT_NOTIFIER_INIT;
++            // By default, initialize mStatusPtr to failure without an
++            // exception.  Doing so only when the union is uninitialized
++            // allows AutoCheckOperation classes to be nested on the
++            // stack, just in case AnswerConstruct, for example, calls
++            // AnswerCall (as it once did, before there were unrelated
++            // problems with that approach ;).
 +            if (mStatus->type() == OperationStatus::T__None)
 +                *mStatus = JS_FALSE;
 +        }
@@ -111,7 +117,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSAutoRequest request(cx);
  #ifdef DEBUG
      bool added =
-@@ -223,98 +279,95 @@ ObjectWrapperChild::AnswerSomething(/* i
+@@ -223,98 +285,95 @@ ObjectWrapperChild::AnswerSomething(/* i
  // There's an important subtlety here: though a local JS operation may
  // fail, leaving out-parameters uninitialized, we must initialize all
  // out-parameters when reporting success (returning true) to the IPC
@@ -226,7 +232,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  static void
  CPOW_NewEnumerateState_Finalize(JSContext* cx, JSObject* state)
  {
-@@ -336,23 +389,23 @@ static const JSClass sCPOW_NewEnumerateS
+@@ -336,23 +395,23 @@ static const JSClass sCPOW_NewEnumerateS
      JS_PropertyStub,  JS_PropertyStub,
      JS_EnumerateStub, JS_ResolveStub,
      JS_ConvertStub,   CPOW_NewEnumerateState_Finalize,
@@ -252,7 +258,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSAutoTempValueRooter tvr(cx, state);
      
      for (JSObject* proto = mObj;
-@@ -372,57 +425,57 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+@@ -372,56 +431,56 @@ ObjectWrapperChild::AnswerNewEnumerateIn
              return false;
          strIds = new nsTArray<nsString>(ids.length());
          for (uint i = 0; i < ids.length(); ++i)
@@ -280,7 +286,6 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      JSObject* state;
      jsval v;
-     JSString* str;
  
 -    *ok = JS_FALSE;
      *statep = in_state;
@@ -319,7 +324,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      JSObject* state;
  
-@@ -440,107 +493,107 @@ ObjectWrapperChild::RecvNewEnumerateDest
+@@ -439,107 +498,107 @@ ObjectWrapperChild::RecvNewEnumerateDest
          JS_SetPrivate(cx, state, NULL);
      }
  
@@ -538,7 +543,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -58,16 +58,75 @@ namespace {
+@@ -58,16 +58,77 @@ namespace {
          }
  
          static JSBool IsSet(JSContext* cx, JSObject* obj) {
@@ -600,7 +605,9 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 +        }
 +        break;
 +    case OperationStatus::TJSBool:
-+        NS_ASSERTION(status->get_JSBool(), "Failed without setting an exception.");
++        if (!status->get_JSBool()) {
++            NS_WARNING("CPOW operation failed without setting an exception.");
++        }
 +        break;
 +    default:
 +        NS_NOTREACHED("Invalid or uninitialized OperationStatus type.");
@@ -614,7 +621,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
        JSCLASS_NEW_RESOLVE | JSCLASS_NEW_ENUMERATE | JSCLASS_IS_EXTENDED |
        JSCLASS_HAS_PRIVATE | JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
        ObjectWrapperParent::CPOW_AddProperty,
-@@ -291,152 +350,161 @@ ObjectWrapperParent::CPOW_AddProperty(JS
+@@ -291,152 +352,161 @@ ObjectWrapperParent::CPOW_AddProperty(JS
                JSVAL_TO_CSTR(cx, id)));
  
      ObjectWrapperParent* self = Unwrap(cx, obj);
@@ -796,7 +803,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
  /*static*/ JSBool
  ObjectWrapperParent::CPOW_NewEnumerate(JSContext *cx, JSObject *obj,
-@@ -468,28 +536,29 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
+@@ -468,28 +538,29 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
  {
      CPOW_LOG(("Calling CPOW_NewResolve (%s)...",
                JSVAL_TO_CSTR(cx, id)));
@@ -829,7 +836,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
          JS_ValueToId(cx, id, &interned_id)) {
          AutoResolveFlag arf(cx, *objp);
          JS_DefinePropertyById(cx, *objp, interned_id, JSVAL_VOID, NULL, NULL,
-@@ -530,89 +599,91 @@ ObjectWrapperParent::CPOW_Call(JSContext
+@@ -530,89 +601,91 @@ ObjectWrapperParent::CPOW_Call(JSContext
  {
      CPOW_LOG(("Calling CPOW_Call..."));
  

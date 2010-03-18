@@ -58,7 +58,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSCLASS_NO_OPTIONAL_MEMBERS
  };
  
-@@ -301,92 +305,104 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+@@ -301,92 +305,103 @@ ObjectWrapperChild::AnswerNewEnumerateIn
  
      JSContext* cx = Manager()->GetContext();
      JSAutoRequest request(cx);
@@ -117,7 +117,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSObject* state;
      jsval v;
 -    JSIdArray* ids;
-     JSString* str;
+-    JSString* str;
  
      *ok = JS_FALSE;
      *statep = in_state;
@@ -191,7 +191,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      jsid interned_id;
      
-@@ -434,16 +450,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+@@ -434,16 +449,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
      JSContext* cx = Manager()->GetContext();
      JSAutoRequest request(cx);
  
@@ -209,7 +209,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                                 argv.Length(), jsargs, &rv);
  
      return jsval_to_JSVariant(cx, *ok ? rv : JSVAL_VOID, rval);
-@@ -454,16 +471,17 @@ ObjectWrapperChild::AnswerConstruct(cons
+@@ -454,16 +470,17 @@ ObjectWrapperChild::AnswerConstruct(cons
                                      JSBool* ok, PObjectWrapperChild** rval)
  {
      *ok = JS_FALSE;
