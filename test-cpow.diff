@@ -340,10 +340,10 @@ new file mode 100644
 +  test_inheritance(new empty);
 +
 +  var cd = new ChildDate,
-+      tolerance = 10; // ms
++      max_diff = 2000; // Ridiculously large to accommodate gcZeal delays.
 +  do_check_eq(Math.max(Math.abs(cd.getTime() - new Date),
-+                       tolerance),
-+              tolerance);
++                       max_diff),
++              max_diff);
 +  do_check_true(cd instanceof ChildDate);
 +}
 +
