@@ -98,6 +98,30 @@ diff --git a/js/src/ipc/tests/unit/test_cpow.js b/js/src/ipc/tests/unit/test_cpo
    do_check_true("answer" in data);
    do_check_false("cnefhasefho" in data.nested);
  
+@@ -85,20 +86,20 @@ function test_constructor(ctor,
+   var empty = new ChildFunction(),
+       proto = new ChildObject();
+   proto.inherited = "inherited";
+   proto.method = new ChildFunction("return 'called'");
+   empty.prototype = proto;
+   test_inheritance(new empty);
+ 
+   var cd = new ChildDate,
+-      tolerance = 10; // ms
++      max_diff = 2000; // Ridiculously large to accommodate gcZeal delays.
+   do_check_eq(Math.max(Math.abs(cd.getTime() - new Date),
+-                       tolerance),
+-              tolerance);
++                       max_diff),
++              max_diff);
+   do_check_true(cd instanceof ChildDate);
+ }
+ 
+ function test_enumeration(A, B) {
+   function check(obj, nk, s) {
+     var keys = [];
+     for (var k in obj)
+       keys[keys.length] = k;
 @@ -225,8 +226,52 @@ function test_getters_setters(get_set, C
    var setter = new ChildFunction("val", "this.side_effect = val");
    get_set.__defineSetter__("defined_setter", setter);
