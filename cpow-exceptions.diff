@@ -111,21 +111,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSAutoRequest request(cx);
  #ifdef DEBUG
      bool added =
-@@ -210,111 +266,109 @@ jsid_from_nsString(JSContext* cx, const 
- // The general schema for ObjectWrapperChild::Answer* methods:
- bool
- ObjectWrapperChild::AnswerSomething(/* in-parameters */
-                                     /* out-parameters */)
- {
-     // initialize out-parameters for failure
-     JSContext* cx = Manager()->GetContext();
-     AutoContextPusher acp(cx);
-+    AutoCheckOperation aco(this, status); // if given a status out-parameter
-     // validate in-parameters, else return false
-     // successfully perform local JS operations, else return true
-     // perform out-parameter conversions, else return false
-     return true;
- }
+@@ -223,98 +279,95 @@ ObjectWrapperChild::AnswerSomething(/* i
  // There's an important subtlety here: though a local JS operation may
  // fail, leaving out-parameters uninitialized, we must initialize all
  // out-parameters when reporting success (returning true) to the IPC
@@ -234,13 +220,13 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +    return jsval_to_JSVariant(cx, aco.Ok() ? val : JSVAL_VOID, vp);
  }
  
- static const PRUint32 sIdArraySlot = 0, sNextIdIndexSlot = 1;
- static const PRUint32 sNumNewEnumerateStateSlots = 2;
+ static const PRUint32 sNextIdIndexSlot = 0;
+ static const PRUint32 sNumNewEnumerateStateSlots = 1;
  
  static void
  CPOW_NewEnumerateState_Finalize(JSContext* cx, JSObject* state)
  {
-@@ -335,23 +389,23 @@ static const JSClass sCPOW_NewEnumerateS
+@@ -336,23 +389,23 @@ static const JSClass sCPOW_NewEnumerateS
      JS_PropertyStub,  JS_PropertyStub,
      JS_EnumerateStub, JS_ResolveStub,
      JS_ConvertStub,   CPOW_NewEnumerateState_Finalize,
@@ -266,22 +252,20 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSAutoTempValueRooter tvr(cx, state);
      
      for (JSObject* proto = mObj;
-@@ -366,63 +420,60 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+@@ -372,57 +425,57 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+             return false;
+         strIds = new nsTArray<nsString>(ids.length());
+         for (uint i = 0; i < ids.length(); ++i)
+             if (!jsid_to_nsString(cx, ids[i], strIds->AppendElement()))
+                 return false;
+     }
+     *idp = strIds->Length();
  
-     JSIdArray* ids = JS_Enumerate(cx, state);
-     if (!ids)
-         return false;
-     JSAutoIdArray* idap = new JSAutoIdArray(cx, ids);
- 
-     *idp = idap->length();
- 
--    *ok = (JS_SetReservedSlot(cx, state, sIdArraySlot,
--                              PRIVATE_TO_JSVAL(idap)) &&
+-    *ok = (JS_SetPrivate(cx, state, strIds) &&
 -           JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
 -                              JSVAL_ZERO) &&
 -           JSObject_to_JSVariant(cx, state, statep));
-+    *status = (JS_SetReservedSlot(cx, state, sIdArraySlot,
-+                                  PRIVATE_TO_JSVAL(idap)) &&
++    *status = (JS_SetPrivate(cx, state, strIds) &&
 +               JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
 +                                  JSVAL_ZERO) &&
 +               JSObject_to_JSVariant(cx, state, statep));
@@ -296,7 +280,6 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      JSObject* state;
      jsval v;
-     JSAutoIdArray* idap;
      JSString* str;
  
 -    *ok = JS_FALSE;
@@ -307,27 +290,23 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      AutoContextPusher acp(cx);
 +    AutoCheckOperation aco(this, status);
  
-     if (!JSObject_from_JSVariant(cx, in_state, &state) ||
-         !JS_GetReservedSlot(cx, state, sIdArraySlot, &v) ||
-         !(idap = static_cast<JSAutoIdArray*>(JSVAL_TO_PRIVATE(v))) ||
-         !JS_GetReservedSlot(cx, state, sNextIdIndexSlot, &v))
+     if (!JSObject_from_JSVariant(cx, in_state, &state))
          return false;
  
-     int i = JSVAL_TO_INT(v);
-     if (i >= idap->length()) {
+     nsTArray<nsString>* strIds =
+         static_cast<nsTArray<nsString>*>(JS_GetPrivate(cx, state));
+ 
+     if (!strIds || !JS_GetReservedSlot(cx, state, sNextIdIndexSlot, &v))
+         return false;
+ 
+     jsint i = JSVAL_TO_INT(v);
+     if (i >= strIds->Length()) {
 -        *ok = JS_TRUE;
 +        *status = JS_TRUE;
          return JSObject_to_JSVariant(cx, NULL, statep);
      }
  
-     if (!JS_IdToValue(cx, (*idap)[i], &v) ||
-         !(str = JS_ValueToString(cx, v)))
--    {
--        *ok = JS_FALSE;
-         return true;
--    }
- 
-     *idp = JS_GetStringChars(str);
+     *idp = strIds->ElementAt(i);
 -    *ok = JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
 -                             INT_TO_JSVAL(i + 1));
 +    *status = JS_SetReservedSlot(cx, state, sNextIdIndexSlot,
@@ -339,9 +318,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  ObjectWrapperChild::RecvNewEnumerateDestroy(const JSVariant& in_state)
  {
      JSObject* state;
-     jsval v;
-@@ -440,107 +491,107 @@ ObjectWrapperChild::RecvNewEnumerateDest
-         JS_SetReservedSlot(cx, state, sIdArraySlot, JSVAL_NULL);
+ 
+@@ -440,107 +493,107 @@ ObjectWrapperChild::RecvNewEnumerateDest
+         JS_SetPrivate(cx, state, NULL);
      }
  
      return true;

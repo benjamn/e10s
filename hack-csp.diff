@@ -1,0 +1,48 @@
+diff --git a/caps/src/nsScriptSecurityManager.cpp b/caps/src/nsScriptSecurityManager.cpp
+--- a/caps/src/nsScriptSecurityManager.cpp
++++ b/caps/src/nsScriptSecurityManager.cpp
+@@ -528,17 +528,17 @@ nsScriptSecurityManager::ContentSecurity
+     nsresult rv;
+     nsIPrincipal* subjectPrincipal = ssm->GetSubjectPrincipal(cx, &rv);
+ 
+     NS_ASSERTION(NS_SUCCEEDED(rv), "CSP: Failed to get nsIPrincipal from js context");
+     if (NS_FAILED(rv))
+         return JS_FALSE; // Not just absence of principal, but failure.
+ 
+     if (!subjectPrincipal)
+-        return JS_FALSE;
++        return JS_TRUE;
+ 
+     nsCOMPtr<nsIContentSecurityPolicy> csp;
+     rv = subjectPrincipal->GetCsp(getter_AddRefs(csp));
+     NS_ASSERTION(NS_SUCCEEDED(rv), "CSP: Failed to get CSP from principal.");
+ 
+     // don't do anything unless there's a CSP
+     if (!csp)
+         return JS_TRUE;
+diff --git a/js/src/jsobj.cpp b/js/src/jsobj.cpp
+--- a/js/src/jsobj.cpp
++++ b/js/src/jsobj.cpp
+@@ -1125,20 +1125,18 @@ Object_p_valueOf(JSContext* cx, JSObject
+ JSBool
+ js_CheckContentSecurityPolicy(JSContext *cx)
+ {
+     JSSecurityCallbacks *callbacks;
+     callbacks = JS_GetSecurityCallbacks(cx);
+ 
+     // if there are callbacks, make sure that the CSP callback is installed and
+     // that it permits eval().
+-    if (callbacks) {
+-        return callbacks->contentSecurityPolicyAllows &&
+-               callbacks->contentSecurityPolicyAllows(cx);
+-    }
++    if (callbacks && callbacks->contentSecurityPolicyAllows)
++        return callbacks->contentSecurityPolicyAllows(cx);
+ 
+     return JS_TRUE;
+ }
+ 
+ /*
+  * Check whether principals subsumes scopeobj's principals, and return true
+  * if so (or if scopeobj has no principals, for backward compatibility with
+  * the JS API, which does not require principals), and false otherwise.

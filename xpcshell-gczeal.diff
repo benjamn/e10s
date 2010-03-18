@@ -1,0 +1,62 @@
+# HG changeset patch
+# User Josh Matthews <josh@joshmatthews.net>
+# Date 1268870722 -46800
+# Node ID fd5629ce0f1a0ae1247ca19f162cd5e92538c93b
+# Parent  198eee23e4db01ae3fc85ba7a3c5bf3b6e12c279
+Bug 526793 - Add gczeal() function to xpcshell
+
+diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
+--- a/js/src/xpconnect/shell/xpcshell.cpp
++++ b/js/src/xpconnect/shell/xpcshell.cpp
+@@ -558,16 +558,31 @@ GC(JSContext *cx, JSObject *obj, uintN a
+ #endif
+            );
+ #ifdef JS_GCMETER
+     js_DumpGCStats(rt, stdout);
+ #endif
+     return JS_TRUE;
+ }
+ 
++#ifdef JS_GC_ZEAL
++static JSBool
++GCZeal(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
++{
++    uint32 zeal;
++    if (argc == 0 || !JS_ValueToECMAUint32(cx, argv[0], &zeal)) {
++        JS_ReportError(cx, "'gczeal' requires an integer");
++        return JS_FALSE;
++    }
++    
++    JS_SetGCZeal(cx, (PRUint8)zeal);
++    return JS_TRUE;
++}
++#endif
++
+ #ifdef DEBUG
+ 
+ static JSBool
+ DumpHeap(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
+ {
+     char *fileName = NULL;
+     void* startThing = NULL;
+     uint32 startTraceKind = 0;
+@@ -796,16 +811,19 @@ static JSFunctionSpec glob_functions[] =
+     {"readline",        ReadLine,       1,0,0},
+     {"load",            Load,           1,0,0},
+     {"quit",            Quit,           0,0,0},
+     {"version",         Version,        1,0,0},
+     {"build",           BuildDate,      0,0,0},
+     {"dumpXPC",         DumpXPC,        1,0,0},
+     {"dump",            Dump,           1,0,0},
+     {"gc",              GC,             0,0,0},
++#ifdef JS_GC_ZEAL
++    {"gczeal",          GCZeal,         1,0,0},
++#endif
+     {"clear",           Clear,          1,0,0},
+     {"options",         Options,        0,0,0},
+ #ifdef DEBUG
+     {"dumpHeap",        DumpHeap,       5,0,0},
+ #endif
+ #ifdef MOZ_IPC
+     {"sendCommand",     SendCommand,    1,0,0},
+ #endif

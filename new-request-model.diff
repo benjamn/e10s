@@ -350,8 +350,8 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSAutoTempValueRooter tvr(cx, state);
      
      for (JSObject* proto = mObj;
-@@ -345,17 +389,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
-     JSAutoIdArray* idap;
+@@ -348,17 +392,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
+     jsval v;
      JSString* str;
  
      *ok = JS_FALSE;
@@ -362,20 +362,20 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 -    JSAutoRequest request(cx);
 +    AutoContextPusher acp(cx);
  
-     if (!JSObject_from_JSVariant(cx, in_state, &state) ||
-         !JS_GetReservedSlot(cx, state, sIdArraySlot, &v) ||
-         !(idap = static_cast<JSAutoIdArray*>(JSVAL_TO_PRIVATE(v))) ||
-         !JS_GetReservedSlot(cx, state, sNextIdIndexSlot, &v))
+     if (!JSObject_from_JSVariant(cx, in_state, &state))
          return false;
  
-     int i = JSVAL_TO_INT(v);
-@@ -380,17 +424,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
+     nsTArray<nsString>* strIds =
+         static_cast<nsTArray<nsString>*>(JS_GetPrivate(cx, state));
+ 
+     if (!strIds || !JS_GetReservedSlot(cx, state, sNextIdIndexSlot, &v))
+@@ -377,17 +421,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
+ }
+     
  bool
  ObjectWrapperChild::RecvNewEnumerateDestroy(const JSVariant& in_state)
  {
      JSObject* state;
-     jsval v;
-     JSAutoIdArray* idap;
  
      JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
@@ -383,12 +383,12 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      if (!JSObject_from_JSVariant(cx, in_state, &state))
          return false;
-     
-     if (JS_GetReservedSlot(cx, state, sIdArraySlot, &v) &&
-         (idap = static_cast<JSAutoIdArray*>(JSVAL_TO_PRIVATE(v)))) {
-         delete idap;
-         JS_SetReservedSlot(cx, state, sIdArraySlot, JSVAL_NULL);
-@@ -404,17 +448,17 @@ ObjectWrapperChild::AnswerNewResolve(con
+ 
+     nsTArray<nsString>* strIds =
+         static_cast<nsTArray<nsString>*>(JS_GetPrivate(cx, state));
+ 
+     if (strIds) {
+@@ -403,17 +447,17 @@ ObjectWrapperChild::AnswerNewResolve(con
                                       JSBool* ok, PObjectWrapperChild** obj2)
  {
      jsid interned_id;
@@ -407,7 +407,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                NS_ConvertUTF16toUTF8(id).get()));
  
      JSPropertyDescriptor desc;
-@@ -430,29 +474,29 @@ ObjectWrapperChild::AnswerNewResolve(con
+@@ -429,29 +473,29 @@ ObjectWrapperChild::AnswerNewResolve(con
  }
  
  bool
@@ -440,7 +440,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      jsval rv, jsargs[argv.Length()];
      JSAutoTempValueRooter tvr(cx, argv.Length(), jsargs);
      for (PRUint32 i = 0; i < argv.Length(); ++i)
-@@ -467,17 +511,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+@@ -466,17 +510,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
  
  bool
  ObjectWrapperChild::AnswerConstruct(const nsTArray<JSVariant>& argv,
@@ -459,7 +459,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
              return false;
  
      JSObject* obj = JS_New(cx, mObj, argv.Length(), jsargs);
-@@ -489,14 +533,14 @@ ObjectWrapperChild::AnswerConstruct(cons
+@@ -488,14 +532,14 @@ ObjectWrapperChild::AnswerConstruct(cons
  }
  
  bool
