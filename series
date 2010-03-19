@@ -1,5 +1,4 @@
 xpcshell-gczeal.diff
-tolerate-browserchrome-failure.diff
 js_new.diff
 cpow.diff
 bent-cpow-comments.diff
