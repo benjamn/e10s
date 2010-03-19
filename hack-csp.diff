@@ -1,7 +1,7 @@
 diff --git a/caps/src/nsScriptSecurityManager.cpp b/caps/src/nsScriptSecurityManager.cpp
 --- a/caps/src/nsScriptSecurityManager.cpp
 +++ b/caps/src/nsScriptSecurityManager.cpp
-@@ -527,18 +527,22 @@ nsScriptSecurityManager::ContentSecurity
+@@ -527,18 +527,23 @@ nsScriptSecurityManager::ContentSecurity
  
      nsresult rv;
      nsIPrincipal* subjectPrincipal = ssm->GetSubjectPrincipal(cx, &rv);
@@ -13,6 +13,7 @@ diff --git a/caps/src/nsScriptSecurityManager.cpp b/caps/src/nsScriptSecurityMan
 -    if (!subjectPrincipal)
 -        return JS_FALSE;
 +    if (!subjectPrincipal) {
++        // See bug 553448 for discussion of this case.
 +        NS_ASSERTION(!JS_GetSecurityCallbacks(cx)->findObjectPrincipals,
 +                     "CSP: Should have been able to find subject principal. "
 +                     "Reluctantly granting access.");
