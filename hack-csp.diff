@@ -1,3 +1,10 @@
+# HG changeset patch
+# User Ben Newman <bnewman@mozilla.com>
+# Date 1268958459 25200
+# Node ID c1cac92bf7b6dc0dfb2d9e1df4d1379e7158edd0
+# Parent  6cf5987b44c53da1921b509829745e157b337d51
+Bug 553448 - nsScriptSecurityManager::ContentSecurityPolicyPermitsJSAction should return JS_TRUE when no subjectPrincipal exists. r=mrbkap sr=dveditz
+
 diff --git a/caps/src/nsScriptSecurityManager.cpp b/caps/src/nsScriptSecurityManager.cpp
 --- a/caps/src/nsScriptSecurityManager.cpp
 +++ b/caps/src/nsScriptSecurityManager.cpp
