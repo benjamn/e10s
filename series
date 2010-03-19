@@ -2,9 +2,7 @@ xpcshell-gczeal.diff
 tolerate-browserchrome-failure.diff
 js_new.diff
 cpow.diff
-jst-cpow-comments.diff
 bent-cpow-comments.diff
-jdm-cpow-feedback.diff
 new-request-model.diff
 test-cpow.diff
 cpow-exceptions.diff

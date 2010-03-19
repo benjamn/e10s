@@ -1009,7 +1009,7 @@ new file mode 100644
 +};
 +
 +struct void_t {};
-+struct null_t {};
++//struct null_t {};
 +    
 +template <typename P>
 +struct CPOWSingleton
@@ -1026,7 +1026,7 @@ new file mode 100644
 +using namespace mozilla::jsipc;
 +
 +template <> struct ParamTraits<void_t> : public CPOWSingleton<void_t> {};
-+template <> struct ParamTraits<null_t> : public CPOWSingleton<null_t> {};
++//template <> struct ParamTraits<null_t> : public CPOWSingleton<null_t> {};
 +
 +template <> struct ParamTraits<JSType> : public CPOWConvertible<JSType, int> {};
 +// We already seem to know how to serialize JSBools, huh.
@@ -1239,7 +1239,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,483 @@
+@@ -0,0 +1,484 @@
 +#include "mozilla/jsipc/ContextWrapperChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -1283,11 +1283,17 @@ new file mode 100644
 +    case JSTYPE_VOID:
 +        *to = void_t();
 +        return true;
++    case JSTYPE_NULL:
++        if (from != JSVAL_NULL)
++            return false;
++        // fall through
 +    case JSTYPE_FUNCTION:
++        // fall through
 +    case JSTYPE_OBJECT:
 +        return JSObject_to_JSVariant(cx, JSVAL_TO_OBJECT(from), to);
 +    case JSTYPE_STRING:
-+        *to = nsString(JS_GetStringChars(JSVAL_TO_STRING(from)));
++        *to = nsDependentString((PRUnichar*)JS_GetStringChars(JSVAL_TO_STRING(from)),
++                                JS_GetStringLength(JSVAL_TO_STRING(from)));
 +        return true;
 +    case JSTYPE_NUMBER:
 +        if (JSVAL_IS_INT(from))
@@ -1298,9 +1304,6 @@ new file mode 100644
 +        return true;
 +    case JSTYPE_BOOLEAN:
 +        *to = !!JSVAL_TO_BOOLEAN(from);
-+        return true;
-+    case JSTYPE_NULL:
-+        *to = null_t();
 +        return true;
 +    case JSTYPE_XML:
 +        // fall through
@@ -1368,9 +1371,6 @@ new file mode 100644
 +    case JSVariant::Tbool:
 +        *to = BOOLEAN_TO_JSVAL(from.get_bool());
 +        return true;
-+    case JSVariant::Tnull_t:
-+        *to = JSVAL_NULL;
-+        return true;
 +    default:
 +        return false;
 +    }
@@ -1388,7 +1388,8 @@ new file mode 100644
 +{
 +    jsval v;
 +    if (JS_IdToValue(cx, from, &v) && JSVAL_IS_STRING(v)) {
-+        *to = JS_GetStringChars(JSVAL_TO_STRING(v));
++        *to = nsDependentString((PRUnichar*)JS_GetStringChars(JSVAL_TO_STRING(v)),
++                                JS_GetStringLength(JSVAL_TO_STRING(v)));
 +        return true;
 +    }
 +    return false;
@@ -1813,7 +1814,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -0,0 +1,620 @@
+@@ -0,0 +1,619 @@
 +#include "mozilla/jsipc/ObjectWrapperParent.h"
 +#include "mozilla/jsipc/ContextWrapperParent.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
@@ -1825,9 +1826,6 @@ new file mode 100644
 +using namespace mozilla::jsipc;
 +
 +namespace {
-+
-+    // This shorthand saves a LOT of typing.
-+    typedef ObjectWrapperParent _;
 +
 +    // Only need one reserved slot because the ObjectWrapperParent* is
 +    // stored in the private slot.
@@ -1884,31 +1882,31 @@ new file mode 100644
 +
 +}
 +
-+const JSExtendedClass _::sCPOW_JSClass = {
++const JSExtendedClass ObjectWrapperParent::sCPOW_JSClass = {
 +    // JSClass (JSExtendedClass.base) initialization
 +    { "CrossProcessObjectWrapper",
 +      JSCLASS_NEW_RESOLVE | JSCLASS_NEW_ENUMERATE | JSCLASS_IS_EXTENDED |
 +      JSCLASS_HAS_PRIVATE | JSCLASS_HAS_RESERVED_SLOTS(sNumSlots),
-+      _::CPOW_AddProperty,
-+      _::CPOW_DelProperty,
-+      _::CPOW_GetProperty,
-+      _::CPOW_SetProperty,
-+      (JSEnumerateOp) _::CPOW_NewEnumerate,
-+        (JSResolveOp) _::CPOW_NewResolve,
-+      _::CPOW_Convert,
-+      _::CPOW_Finalize,
++      ObjectWrapperParent::CPOW_AddProperty,
++      ObjectWrapperParent::CPOW_DelProperty,
++      ObjectWrapperParent::CPOW_GetProperty,
++      ObjectWrapperParent::CPOW_SetProperty,
++      (JSEnumerateOp) ObjectWrapperParent::CPOW_NewEnumerate,
++        (JSResolveOp) ObjectWrapperParent::CPOW_NewResolve,
++      ObjectWrapperParent::CPOW_Convert,
++      ObjectWrapperParent::CPOW_Finalize,
 +      nsnull, // getObjectOps
 +      nsnull, // checkAccess
-+      _::CPOW_Call,
-+      _::CPOW_Construct,
++      ObjectWrapperParent::CPOW_Call,
++      ObjectWrapperParent::CPOW_Construct,
 +      nsnull, // xdrObject
-+      _::CPOW_HasInstance,
++      ObjectWrapperParent::CPOW_HasInstance,
 +      nsnull, // mark
 +      nsnull, // reserveSlots
 +    },
 +
 +    // JSExtendedClass initialization
-+    _::CPOW_Equality,
++    ObjectWrapperParent::CPOW_Equality,
 +    nsnull, // outerObject
 +    nsnull, // innerObject
 +    nsnull, // iterator
@@ -1919,17 +1917,16 @@ new file mode 100644
 +void
 +ObjectWrapperParent::ActorDestroy(ActorDestroyReason)
 +{
-+    // See GetJSObject, Unwrap.
-+    *mObjSlotContents = NULL;
++    if (mObj)
++        mObj->setPrivate(NULL);
 +}
 +    
 +JSObject*
 +ObjectWrapperParent::GetJSObject(JSContext* cx) const
 +{
-+    JSClass* clasp = const_cast<JSClass*>(&_::sCPOW_JSClass.base);
++    JSClass* clasp = const_cast<JSClass*>(&ObjectWrapperParent::sCPOW_JSClass.base);
 +    if (!mObj && (mObj = JS_NewObject(cx, clasp, NULL, NULL))) {
-+        *mObjSlotContents = this; // See ActorDestroy, Unwrap.
-+        JS_SetPrivate(cx, mObj, mObjSlotContents);
++        JS_SetPrivate(cx, mObj, (void*)this);
 +        JS_SetReservedSlot(cx, mObj, sFlagsSlot, JSVAL_ZERO);
 +    }
 +    return mObj;
@@ -1938,13 +1935,12 @@ new file mode 100644
 +static ObjectWrapperParent*
 +Unwrap(JSContext* cx, JSObject* obj)
 +{
-+    while (STOBJ_GET_CLASS(obj) != &_::sCPOW_JSClass.base)
++    while (STOBJ_GET_CLASS(obj) != &ObjectWrapperParent::sCPOW_JSClass.base)
 +        if (!(obj = STOBJ_GET_PROTO(obj)))
 +            return NULL;
 +    
-+    // See ActorDestroy, GetJSObject.
 +    ObjectWrapperParent* self =
-+        *static_cast<ObjectWrapperParent**>(JS_GetPrivate(cx, obj));
++        static_cast<ObjectWrapperParent*>(JS_GetPrivate(cx, obj));
 +
 +    NS_ASSERTION(!self || self->GetJSObject(cx) == obj,
 +                 "Wrapper and wrapped object disagree?");
@@ -1960,20 +1956,25 @@ new file mode 100644
 +    case JSTYPE_VOID:
 +        *to = void_t();
 +        return true;
++    case JSTYPE_NULL:
++        if (from != JSVAL_NULL)
++            return false;
++        // fall through
 +    case JSTYPE_OBJECT:
 +        {
 +            PObjectWrapperParent* powp;
 +            if (!JSObject_to_PObjectWrapperParent(cx, JSVAL_TO_OBJECT(from), &powp))
 +                return false;
 +            *to = powp;
-+            return true;
 +        }
++        return true;
 +    case JSTYPE_FUNCTION:
 +        // CPOW-wrapped functions have JSTYPE_OBJECT, so this function
 +        // must be unknown to the child process.
 +        return false;
 +    case JSTYPE_STRING:
-+        *to = nsString(JS_GetStringChars(JSVAL_TO_STRING(from)));
++        *to = nsDependentString((PRUnichar*)JS_GetStringChars(JSVAL_TO_STRING(from)),
++                                JS_GetStringLength(JSVAL_TO_STRING(from)));
 +        return true;
 +    case JSTYPE_NUMBER:
 +        if (JSVAL_IS_INT(from))
@@ -1985,8 +1986,6 @@ new file mode 100644
 +    case JSTYPE_BOOLEAN:
 +        *to = !!JSVAL_TO_BOOLEAN(from);
 +        return true;
-+    case JSTYPE_NULL:
-+        *to = null_t();
 +    case JSTYPE_XML:
 +    default:
 +        return false;
@@ -2019,9 +2018,6 @@ new file mode 100644
 +    case JSVariant::Tbool:
 +        *to = BOOLEAN_TO_JSVAL(from.get_bool());
 +        return true;
-+    case JSVariant::Tnull_t:
-+        *to = JSVAL_NULL;
-+        return true;
 +    default:
 +        return false;
 +    }
@@ -2032,6 +2028,10 @@ new file mode 100644
 +JSObject_to_PObjectWrapperParent(JSContext* cx, JSObject* from,
 +                                 PObjectWrapperParent** to)
 +{
++    if (!from) {
++        *to = NULL;
++        return true;
++    }
 +    ObjectWrapperParent* owp = Unwrap(cx, from);
 +    if (!owp)
 +        return false;
@@ -2438,7 +2438,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperParent.h
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,97 @@
 +#ifndef mozilla_jsipc_ObjectWrapperParent_h__
 +#define mozilla_jsipc_ObjectWrapperParent_h__
 +
@@ -2456,7 +2456,6 @@ new file mode 100644
 +
 +    ObjectWrapperParent()
 +        : mObj(NULL)
-+        , mObjSlotContents(new ObjectWrapperParent const*(NULL))
 +    {}
 +
 +    JSObject* GetJSObject(JSContext* cx) const;
@@ -2474,7 +2473,6 @@ new file mode 100644
 +private:
 +
 +    mutable JSObject* mObj;
-+    ObjectWrapperParent const** const mObjSlotContents;
 +
 +    static JSBool
 +    CPOW_AddProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
@@ -2564,13 +2562,12 @@ diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PObjectWrapper.ipdl
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,80 @@
 +include protocol "PContextWrapper.ipdl";
 +
 +include "mozilla/jsipc/CPOWTypes.h";
 +
 +using mozilla::jsipc::void_t;
-+using mozilla::jsipc::null_t;
 +using JSType;
 +using JSBool;
 +
@@ -2585,7 +2582,6 @@ new file mode 100644
 +    double;
 +    bool; // We'd like to use JSBool here, but JSBool is really JSIntn,
 +          // and IPC::ParamTraits mistakes JSIntn for int.
-+    null_t;
 +};
 +
 +rpc protocol PObjectWrapper
@@ -2639,7 +2635,7 @@ new file mode 100644
 +
 +    rpc Construct(JSVariant[] argv)
 +        returns (JSBool ok,
-+                 PObjectWrapper rval);
++                 nullable PObjectWrapper rval);
 +
 +    rpc HasInstance(JSVariant v)
 +        returns (JSBool ok,
