@@ -1,7 +1,8 @@
 diff --git a/caps/src/nsScriptSecurityManager.cpp b/caps/src/nsScriptSecurityManager.cpp
 --- a/caps/src/nsScriptSecurityManager.cpp
 +++ b/caps/src/nsScriptSecurityManager.cpp
-@@ -528,17 +528,17 @@ nsScriptSecurityManager::ContentSecurity
+@@ -527,18 +527,22 @@ nsScriptSecurityManager::ContentSecurity
+ 
      nsresult rv;
      nsIPrincipal* subjectPrincipal = ssm->GetSubjectPrincipal(cx, &rv);
  
@@ -9,9 +10,14 @@ diff --git a/caps/src/nsScriptSecurityManager.cpp b/caps/src/nsScriptSecurityMan
      if (NS_FAILED(rv))
          return JS_FALSE; // Not just absence of principal, but failure.
  
-     if (!subjectPrincipal)
+-    if (!subjectPrincipal)
 -        return JS_FALSE;
++    if (!subjectPrincipal) {
++        NS_ASSERTION(!JS_GetSecurityCallbacks(cx)->findObjectPrincipals,
++                     "CSP: Should have been able to find subject principal. "
++                     "Reluctantly granting access.");
 +        return JS_TRUE;
++    }
  
      nsCOMPtr<nsIContentSecurityPolicy> csp;
      rv = subjectPrincipal->GetCsp(getter_AddRefs(csp));
