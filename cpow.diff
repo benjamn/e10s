@@ -58,7 +58,7 @@ diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFra
 diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader.cpp
 --- a/content/base/src/nsFrameLoader.cpp
 +++ b/content/base/src/nsFrameLoader.cpp
-@@ -64,16 +64,18 @@
+@@ -70,16 +70,18 @@
  #include "nsIWebNavigation.h"
  #include "nsIDocShell.h"
  #include "nsIDocShellTreeItem.h"
@@ -96,7 +96,7 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
    {
    }
  
-@@ -1573,16 +1577,34 @@ nsFrameLoader::ActivateFrameEvent(const 
+@@ -1572,16 +1576,34 @@ nsFrameLoader::ActivateFrameEvent(const 
    if (mChildProcess) {
      mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
      return NS_OK;
@@ -155,7 +155,7 @@ diff --git a/content/base/src/nsFrameLoader.h b/content/base/src/nsFrameLoader.h
 diff --git a/content/base/src/nsObjectLoadingContent.cpp b/content/base/src/nsObjectLoadingContent.cpp
 --- a/content/base/src/nsObjectLoadingContent.cpp
 +++ b/content/base/src/nsObjectLoadingContent.cpp
-@@ -778,16 +778,22 @@ nsObjectLoadingContent::GetFrameLoader()
+@@ -790,16 +790,22 @@ nsObjectLoadingContent::GetFrameLoader()
  }
  
  NS_IMETHODIMP
@@ -181,7 +181,7 @@ diff --git a/content/base/src/nsObjectLoadingContent.cpp b/content/base/src/nsOb
 diff --git a/content/html/content/src/nsGenericHTMLElement.cpp b/content/html/content/src/nsGenericHTMLElement.cpp
 --- a/content/html/content/src/nsGenericHTMLElement.cpp
 +++ b/content/html/content/src/nsGenericHTMLElement.cpp
-@@ -2752,16 +2752,23 @@ nsGenericHTMLFrameElement::GetFrameLoade
+@@ -2770,16 +2770,23 @@ nsGenericHTMLFrameElement::GetFrameLoade
  
  NS_IMETHODIMP
  nsGenericHTMLFrameElement::SwapFrameLoaders(nsIFrameLoaderOwner* aOtherOwner)
@@ -208,7 +208,7 @@ diff --git a/content/html/content/src/nsGenericHTMLElement.cpp b/content/html/co
 diff --git a/content/xul/content/src/nsXULElement.cpp b/content/xul/content/src/nsXULElement.cpp
 --- a/content/xul/content/src/nsXULElement.cpp
 +++ b/content/xul/content/src/nsXULElement.cpp
-@@ -2001,16 +2001,22 @@ nsXULElement::SwapFrameLoaders(nsIFrameL
+@@ -1998,16 +1998,22 @@ nsXULElement::SwapFrameLoaders(nsIFrameL
      }
  
      return
@@ -234,7 +234,7 @@ diff --git a/content/xul/content/src/nsXULElement.cpp b/content/xul/content/src/
 diff --git a/content/xul/content/src/nsXULElement.h b/content/xul/content/src/nsXULElement.h
 --- a/content/xul/content/src/nsXULElement.h
 +++ b/content/xul/content/src/nsXULElement.h
-@@ -576,16 +576,18 @@ public:
+@@ -558,16 +558,18 @@ public:
      virtual PRInt32 IntrinsicState() const;
  
      nsresult GetStyle(nsIDOMCSSStyleDeclaration** aStyle);
@@ -485,7 +485,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
 --- a/dom/ipc/TabChild.h
 +++ b/dom/ipc/TabChild.h
-@@ -61,16 +61,21 @@
+@@ -62,16 +62,21 @@
  #include "nsFrameMessageManager.h"
  #include "nsIScriptContext.h"
  #include "nsDOMEventTargetHelper.h"
@@ -507,7 +507,7 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
                         public nsIContentFrameMessageManager,
                         public nsIScriptObjectPrincipal,
                         public nsIScriptContextPrincipal
-@@ -187,16 +192,20 @@ public:
+@@ -189,16 +194,20 @@ public:
              const PRUint32& flags,
              const bool& flush);
  
@@ -2659,7 +2659,7 @@ new file mode 100644
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp
 +++ b/js/src/xpconnect/shell/xpcshell.cpp
-@@ -688,16 +688,31 @@ SendCommand(JSContext* cx,
+@@ -701,16 +701,31 @@ SendCommand(JSContext* cx,
      if (!XRE_SendTestShellCommand(cx, str, argc > 1 ? &argv[1] : nsnull)) {
          JS_ReportError(cx, "Couldn't send command!");
          return JS_FALSE;
@@ -2691,8 +2691,8 @@ diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshe
   */
  static const struct {
      const char  *name;
-@@ -805,16 +820,17 @@ static JSFunctionSpec glob_functions[] =
-     {"gc",              GC,             0,0,0},
+@@ -821,16 +836,17 @@ static JSFunctionSpec glob_functions[] =
+ #endif
      {"clear",           Clear,          1,0,0},
      {"options",         Options,        0,0,0},
  #ifdef DEBUG
@@ -2754,7 +2754,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
  MAKEFILES_jsctypes="
    js/ctypes/Makefile
  "
-@@ -845,16 +849,17 @@ add_makefiles "
+@@ -843,16 +847,17 @@ add_makefiles "
    $MAKEFILES_db
    $MAKEFILES_dom
    $MAKEFILES_editor
@@ -2775,7 +2775,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
 diff --git a/toolkit/toolkit-tiers.mk b/toolkit/toolkit-tiers.mk
 --- a/toolkit/toolkit-tiers.mk
 +++ b/toolkit/toolkit-tiers.mk
-@@ -97,17 +97,17 @@ ifeq ($(OS_ARCH),WINCE)
+@@ -101,17 +101,17 @@ ifeq ($(OS_ARCH),WINCE)
  tier_platform_dirs += modules/lib7z
  endif
  
@@ -2797,7 +2797,7 @@ diff --git a/toolkit/toolkit-tiers.mk b/toolkit/toolkit-tiers.mk
 diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
 --- a/toolkit/xre/nsEmbedFunctions.cpp
 +++ b/toolkit/xre/nsEmbedFunctions.cpp
-@@ -87,16 +87,18 @@
+@@ -86,16 +86,18 @@
  #include "mozilla/ipc/BrowserProcessSubThread.h"
  #include "ScopedXREEmbed.h"
  
@@ -2816,7 +2816,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  #include "mozilla/_ipdltest/IPDLUnitTests.h"
  #include "mozilla/_ipdltest/IPDLUnitTestThreadChild.h"
  
-@@ -106,16 +108,20 @@ using mozilla::_ipdltest::IPDLUnitTestTh
+@@ -105,16 +107,20 @@ using mozilla::_ipdltest::IPDLUnitTestTh
  using mozilla::ipc::GeckoChildProcessHost;
  using mozilla::ipc::BrowserProcessSubThread;
  using mozilla::ipc::ScopedXREEmbed;
@@ -2837,7 +2837,7 @@ diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
  using mozilla::MonitorAutoEnter;
  
  using mozilla::startup::sChildProcessType;
-@@ -510,48 +516,60 @@ XRE_ShutdownChildProcess()
+@@ -509,48 +515,60 @@ XRE_ShutdownChildProcess()
    MessageLoop* ioLoop = XRE_GetIOMessageLoop();
    NS_ABORT_IF_FALSE(!!ioLoop, "Bad shutdown order");
  
