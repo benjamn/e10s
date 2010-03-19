@@ -40,19 +40,11 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
        ObjectWrapperParent::CPOW_AddProperty,
        ObjectWrapperParent::CPOW_DelProperty,
        ObjectWrapperParent::CPOW_GetProperty,
-@@ -197,45 +208,46 @@ ObjectWrapperParent::jsval_to_JSVariant(
-     switch (JS_TypeOfValue(cx, from)) {
-     case JSTYPE_VOID:
-         *to = void_t();
-         return true;
-     case JSTYPE_NULL:
-         if (from != JSVAL_NULL)
-             return false;
-         // fall through
-+    case JSTYPE_FUNCTION:
-+        // CPOWs can fool JS_TypeOfValue into returning JSTYPE_FUNCTION
-+        // because they have a call hook, but CPOWs are really objects, so
-+        // fall through to the JSTYPE_OBJECT case:
+@@ -205,17 +216,17 @@ ObjectWrapperParent::jsval_to_JSVariant(
+     case JSTYPE_FUNCTION:
+         // CPOWs can fool JS_TypeOfValue into returning JSTYPE_FUNCTION
+         // because they have a call hook, but CPOWs are really objects, so
+         // fall through to the JSTYPE_OBJECT case:
      case JSTYPE_OBJECT:
          {
              PObjectWrapperParent* powp;
@@ -62,17 +54,12 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
              *to = powp;
          }
          return true;
--    case JSTYPE_FUNCTION:
--        // CPOW-wrapped functions have JSTYPE_OBJECT, so this function
--        // must be unknown to the child process.
--        return false;
      case JSTYPE_STRING:
          *to = nsDependentString((PRUnichar*)JS_GetStringChars(JSVAL_TO_STRING(from)),
                                  JS_GetStringLength(JSVAL_TO_STRING(from)));
          return true;
      case JSTYPE_NUMBER:
-         if (JSVAL_IS_INT(from))
-             *to = JSVAL_TO_INT(from);
+@@ -224,18 +235,19 @@ ObjectWrapperParent::jsval_to_JSVariant(
          else if (JSVAL_IS_DOUBLE(from))
              *to = *JSVAL_TO_DOUBLE(from);
          else return false;

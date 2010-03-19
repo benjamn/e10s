@@ -5,28 +5,6 @@
 # Parent  98650290e6d93dee49154350fe47a7bcff2f5c82
 imported patch cpow-exceptions.diff
 
-diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
---- a/js/src/ipc/CPOWTypes.h
-+++ b/js/src/ipc/CPOWTypes.h
-@@ -26,17 +26,17 @@ struct void_t {};
- //struct null_t {};
-     
- template <typename P>
- struct CPOWSingleton
- {
-     static void Write(Message*, const P&) {}
-     static bool Read(const Message*, void**, P*) { return true; }
- };
--    
-+
- } // namespace jsipc
- } // namespace mozilla
- 
- namespace IPC {
- 
- using namespace mozilla::jsipc;
- 
- template <> struct ParamTraits<void_t> : public CPOWSingleton<void_t> {};
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
