@@ -1,6 +1,4 @@
 xpcshell-gczeal.diff
-493748-AAv1_test-path.diff
-xpcshell-ipc-fix.diff
 tolerate-browserchrome-failure.diff
 js_new.diff
 cpow.diff
