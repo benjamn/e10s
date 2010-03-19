@@ -19,18 +19,18 @@ diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFra
  interface nsIChromeFrameMessageManager;
 +interface nsIVariant;
  
- [scriptable, uuid(25b7a7e9-9507-4649-bba9-86852d72c5d3)]
+ [scriptable, uuid(e511f61f-97db-448a-8b29-a10c470df3fa)]
  interface nsIFrameLoader : nsISupports
  {
    /**
     * Get the docshell from the frame loader.
     */
    readonly attribute nsIDocShell docShell;
-@@ -106,25 +107,27 @@ interface nsIFrameLoader : nsISupports
-    */
-   void activateFrameEvent(in AString aType, in boolean capture);
+@@ -116,25 +117,27 @@ interface nsIFrameLoader : nsISupports
+                                 in long aCharCode,
+                                 in long aModifiers,
+                                 [optional] in boolean aPreventDefault);
  
-   readonly attribute nsIChromeFrameMessageManager messageManager;
  };
  
  native alreadyAddRefed_nsFrameLoader(already_AddRefed<nsFrameLoader>);
@@ -96,9 +96,9 @@ diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader
    {
    }
  
-@@ -1572,16 +1576,34 @@ nsFrameLoader::ActivateFrameEvent(const 
-   if (mChildProcess) {
-     mChildProcess->SendactivateFrameEvent(nsString(aType), aCapture);
+@@ -1589,16 +1593,34 @@ nsFrameLoader::SendCrossProcessKeyEvent(
+     mChildProcess->SendKeyEvent(aType, aKeyCode, aCharCode, aModifiers,
+                                 aPreventDefault);
      return NS_OK;
    }
  #endif
@@ -434,12 +434,12 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -425,16 +436,47 @@ TabChild::RecvsendMouseEvent(const nsStr
-   nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
+@@ -441,16 +452,47 @@ TabChild::RecvsendKeyEvent(const nsStrin
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
-   utils->SendMouseEvent(aType, aX, aY, aButton, aClickCount, aModifiers,
-                         aIgnoreRootScrollFrame);
+   PRBool ignored = PR_FALSE;
+   utils->SendKeyEvent(aType, aKeyCode, aCharCode,
+                       aModifiers, aPreventDefault, &ignored);
    return true;
  }
  
@@ -507,7 +507,7 @@ diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
                         public nsIContentFrameMessageManager,
                         public nsIScriptObjectPrincipal,
                         public nsIScriptContextPrincipal
-@@ -189,16 +194,20 @@ public:
+@@ -194,16 +199,20 @@ public:
              const PRUint32& flags,
              const bool& flush);
  
@@ -636,7 +636,7 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
      TabParent();
      virtual ~TabParent();
      void SetOwnerElement(nsIDOMElement* aElement) { mFrameElement = aElement; }
-@@ -82,16 +90,22 @@ public:
+@@ -85,16 +93,22 @@ public:
              const PRInt32& x,
              const PRInt32& y,
              const PRInt32& w,
@@ -2659,7 +2659,7 @@ new file mode 100644
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp
 +++ b/js/src/xpconnect/shell/xpcshell.cpp
-@@ -701,16 +701,31 @@ SendCommand(JSContext* cx,
+@@ -691,16 +691,31 @@ SendCommand(JSContext* cx,
      if (!XRE_SendTestShellCommand(cx, str, argc > 1 ? &argv[1] : nsnull)) {
          JS_ReportError(cx, "Couldn't send command!");
          return JS_FALSE;
@@ -2691,7 +2691,7 @@ diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshe
   */
  static const struct {
      const char  *name;
-@@ -821,16 +836,17 @@ static JSFunctionSpec glob_functions[] =
+@@ -811,16 +826,17 @@ static JSFunctionSpec glob_functions[] =
  #endif
      {"clear",           Clear,          1,0,0},
      {"options",         Options,        0,0,0},
@@ -2754,7 +2754,7 @@ diff --git a/toolkit/toolkit-makefiles.sh b/toolkit/toolkit-makefiles.sh
  MAKEFILES_jsctypes="
    js/ctypes/Makefile
  "
-@@ -843,16 +847,17 @@ add_makefiles "
+@@ -837,16 +841,17 @@ add_makefiles "
    $MAKEFILES_db
    $MAKEFILES_dom
    $MAKEFILES_editor
