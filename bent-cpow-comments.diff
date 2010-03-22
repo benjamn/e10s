@@ -62,7 +62,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSCLASS_NO_OPTIONAL_MEMBERS
  };
  
-@@ -340,92 +344,105 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+@@ -340,92 +344,102 @@ ObjectWrapperChild::AnswerNewEnumerateIn
  
      JSContext* cx = Manager()->GetContext();
      JSAutoRequest request(cx);
@@ -127,7 +127,8 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      *ok = JS_FALSE;
      *statep = in_state;
-     *idp = EmptyString();
+-    *idp = EmptyString();
++    idp->Truncate();
      
      JSContext* cx = Manager()->GetContext();
      JSAutoRequest request(cx);
@@ -148,7 +149,10 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +        return false;
 +
 +    jsint i = JSVAL_TO_INT(v);
-+    if (i >= strIds->Length()) {
++    NS_ASSERTION(i >= 0, "Index of next jsid negative?");
++    NS_ASSERTION(i <= strIds->Length(), "Index of next jsid too large?");
++
++    if (i == strIds->Length()) {
          *ok = JS_TRUE;
          return JSObject_to_JSVariant(cx, NULL, statep);
      }
@@ -180,13 +184,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +    if (!JSObject_from_JSVariant(cx, in_state, &state))
 +        return false;
 +
-+    nsTArray<nsString>* strIds =
-+        static_cast<nsTArray<nsString>*>(JS_GetPrivate(cx, state));
-+
-+    if (strIds) {
-+        delete strIds;
-+        JS_SetPrivate(cx, state, NULL);
-+    }
++    CPOW_NewEnumerateState_Finalize(cx, state);
 +
 +    return true;
  }
@@ -197,7 +195,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      jsid interned_id;
      
-@@ -473,16 +490,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+@@ -473,16 +487,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
      JSContext* cx = Manager()->GetContext();
      JSAutoRequest request(cx);
  
@@ -215,7 +213,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                                 argv.Length(), jsargs, &rv);
  
      return jsval_to_JSVariant(cx, *ok ? rv : JSVAL_VOID, rval);
-@@ -493,16 +511,17 @@ ObjectWrapperChild::AnswerConstruct(cons
+@@ -493,16 +508,17 @@ ObjectWrapperChild::AnswerConstruct(cons
                                      JSBool* ok, PObjectWrapperChild** rval)
  {
      *ok = JS_FALSE;

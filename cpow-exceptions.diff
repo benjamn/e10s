@@ -249,7 +249,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSAutoTempValueRooter tvr(cx, state);
      
      for (JSObject* proto = mObj;
-@@ -401,56 +463,56 @@ ObjectWrapperChild::AnswerNewEnumerateIn
+@@ -401,59 +463,59 @@ ObjectWrapperChild::AnswerNewEnumerateIn
          for (uint i = 0; i < ids.length(); ++i)
              if (!jsid_to_nsString(cx, ids[i], strIds->AppendElement())) {
                  delete strIds;
@@ -280,7 +280,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
 -    *ok = JS_FALSE;
      *statep = in_state;
-     *idp = EmptyString();
+     idp->Truncate();
      
      JSContext* cx = Manager()->GetContext();
      AutoContextPusher acp(cx);
@@ -296,7 +296,10 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
          return false;
  
      jsint i = JSVAL_TO_INT(v);
-     if (i >= strIds->Length()) {
+     NS_ASSERTION(i >= 0, "Index of next jsid negative?");
+     NS_ASSERTION(i <= strIds->Length(), "Index of next jsid too large?");
+ 
+     if (i == strIds->Length()) {
 -        *ok = JS_TRUE;
 +        *status = JS_TRUE;
          return JSObject_to_JSVariant(cx, NULL, statep);
@@ -315,9 +318,9 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      JSObject* state;
  
-@@ -468,119 +530,119 @@ ObjectWrapperChild::RecvNewEnumerateDest
-         JS_SetPrivate(cx, state, NULL);
-     }
+@@ -465,68 +527,68 @@ ObjectWrapperChild::RecvNewEnumerateDest
+ 
+     CPOW_NewEnumerateState_Finalize(cx, state);
  
      return true;
  }
@@ -393,6 +396,8 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      AutoJSArgs args;
      PRUint32 argc = argv.Length();
      jsval *jsargs = args.AppendElements(argc);
+@@ -534,54 +596,54 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+         return false;
      JSAutoTempValueRooter tvr(cx, argc, jsargs);
  
      for (PRUint32 i = 0; i < argc; ++i)
@@ -423,6 +428,8 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      AutoJSArgs args;
      PRUint32 argc = argv.Length();
      jsval* jsargs = args.AppendElements(argc);
+     if (!jsargs)
+         return false;
      JSAutoTempValueRooter tvr(cx, argc, jsargs);
  
      for (PRUint32 i = 0; i < argc; ++i)

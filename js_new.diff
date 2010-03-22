@@ -1,23 +1,159 @@
-Bug 480850 - JSAPI should support creating objects given a constructor Function.
+# HG changeset patch
+# User Jason Orendorff <jorendorff@mozilla.com>
+# Date 1268839333 18000
+# Node ID 869bebcf1f211030a0ca651f0dfec22ef5ce0eb5
+# Parent  25d07807a602515e04e6db5e90e091d031fb2c9e
+Bug 480850 - Add JSAPI function JS_New. r=mrbkap.
 
+diff --git a/js/src/jsapi-tests/Makefile.in b/js/src/jsapi-tests/Makefile.in
+--- a/js/src/jsapi-tests/Makefile.in
++++ b/js/src/jsapi-tests/Makefile.in
+@@ -50,16 +50,17 @@ CPPSRCS = \
+   selfTest.cpp \
+   testContexts.cpp \
+   testDebugger.cpp \
+   testDefineGetterSetterNonEnumerable.cpp \
+   testExtendedEq.cpp \
+   testIntString.cpp \
+   testIsAboutToBeFinalized.cpp \
+   testLookup.cpp \
++  testNewObject.cpp \
+   testPropCache.cpp \
+   testTrap.cpp \
+   testSameValue.cpp \
+   testSeal.cpp \
+   testXDR.cpp \
+   testSetPropertyWithNativeGetterStubSetter.cpp \
+   $(NULL)
+ 
+diff --git a/js/src/jsapi-tests/testNewObject.cpp b/js/src/jsapi-tests/testNewObject.cpp
+new file mode 100644
+--- /dev/null
++++ b/js/src/jsapi-tests/testNewObject.cpp
+@@ -0,0 +1,101 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=4 sw=4 et tw=99:
++ */
++
++#include "tests.h"
++
++const int N = 1000;
++static jsval argv[N];
++
++static JSBool
++constructHook(JSContext *cx, JSObject *thisobj, uintN argc, jsval *argv, jsval *rval)
++{
++    // Check that arguments were passed properly from JS_New.
++    JSObject *callee = JSVAL_TO_OBJECT(JS_ARGV_CALLEE(argv));
++    if (!thisobj) {
++        JS_ReportError(cx, "test failed, null 'this'");
++        return false;
++    }
++    if (strcmp(JS_GET_CLASS(cx, thisobj)->name, "Object") != 0) {
++        JS_ReportError(cx, "test failed, wrong class for 'this'");
++        return false;
++    }
++    if (argc != 3) {
++        JS_ReportError(cx, "test failed, argc == %d", argc);
++        return false;
++    }
++    if (!JSVAL_IS_INT(argv[2]) || JSVAL_TO_INT(argv[2]) != 2) {
++        JS_ReportError(cx, "test failed, wrong value in argv[2]");
++        return false;
++    }
++    if (!JS_IsConstructing(cx)) {
++        JS_ReportError(cx, "test failed, not constructing");
++        return false;
++    }
++
++    // Perform a side-effect to indicate that this hook was actually called.
++    if (!JS_SetElement(cx, callee, 0, &argv[0]))
++        return false;
++
++    *rval = OBJECT_TO_JSVAL(callee); // return the callee, perversely
++    argv[0] = argv[1] = argv[2] = JSVAL_VOID;  // trash the argv, perversely
++    return true;
++}
++
++BEGIN_TEST(testNewObject_1)
++{
++    jsval v;
++    EVAL("Array", &v);
++    JSObject *Array = JSVAL_TO_OBJECT(v);
++
++    // With no arguments.
++    JSObject *obj = JS_New(cx, Array, 0, NULL);
++    CHECK(obj);
++    jsvalRoot rt(cx, OBJECT_TO_JSVAL(obj));
++    CHECK(JS_IsArrayObject(cx, obj));
++    jsuint len;
++    CHECK(JS_GetArrayLength(cx, obj, &len));
++    CHECK(len == 0);
++
++    // With one argument.
++    argv[0] = INT_TO_JSVAL(4);
++    obj = JS_New(cx, Array, 1, argv);
++    CHECK(obj);
++    rt = OBJECT_TO_JSVAL(obj);
++    CHECK(JS_IsArrayObject(cx, obj));
++    CHECK(JS_GetArrayLength(cx, obj, &len));
++    CHECK(len == 4);
++
++    // With N arguments.
++    JS_ASSERT(INT_FITS_IN_JSVAL(N));
++    for (int i = 0; i < N; i++)
++        argv[i] = INT_TO_JSVAL(i);
++    obj = JS_New(cx, Array, N, argv);
++    CHECK(obj);
++    rt = OBJECT_TO_JSVAL(obj);
++    CHECK(JS_IsArrayObject(cx, obj));
++    CHECK(JS_GetArrayLength(cx, obj, &len));
++    CHECK(len == N);
++    CHECK(JS_GetElement(cx, obj, N - 1, &v));
++    CHECK_SAME(v, INT_TO_JSVAL(N - 1));
++
++    // With JSClass.construct.
++    static JSClass cls = {
++        "testNewObject_1",
++        0,
++        JS_PropertyStub, JS_PropertyStub, JS_PropertyStub, JS_PropertyStub,
++        JS_EnumerateStub, JS_ResolveStub, JS_ConvertStub, NULL,
++        NULL, NULL, NULL, constructHook, NULL, NULL, NULL, NULL
++    };
++    JSObject *ctor = JS_NewObject(cx, &cls, NULL, NULL);
++    CHECK(ctor);
++    jsvalRoot rt2(cx, OBJECT_TO_JSVAL(ctor));
++    obj = JS_New(cx, ctor, 3, argv);
++    CHECK(obj);
++    CHECK(obj == ctor);  // constructHook returns ctor, perversely
++    CHECK(JS_GetElement(cx, ctor, 0, &v));
++    CHECK_SAME(v, JSVAL_ZERO);
++    CHECK_SAME(argv[0], JSVAL_ZERO);  // original argv should not have been trashed
++    CHECK_SAME(argv[1], JSVAL_ONE);
++}
++END_TEST(testNewObject_1)
 diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
 --- a/js/src/jsapi.cpp
 +++ b/js/src/jsapi.cpp
-@@ -2820,16 +2820,36 @@ JS_ConstructObjectWithArguments(JSContex
-                                 JSObject *parent, uintN argc, jsval *argv)
- {
+@@ -4976,16 +4976,41 @@ JS_CallFunctionValue(JSContext *cx, JSOb
+     JSBool ok;
+ 
      CHECK_REQUEST(cx);
-     if (!clasp)
-         clasp = &js_ObjectClass;    /* default class is Object */
-     return js_ConstructObject(cx, clasp, proto, parent, argc, argv);
+     ok = js_InternalCall(cx, obj, fval, argc, argv, rval);
+     LAST_FRAME_CHECKS(cx, ok);
+     return ok;
  }
  
 +JS_PUBLIC_API(JSObject *)
 +JS_New(JSContext *cx, JSObject *ctor, uintN argc, jsval *argv)
 +{
-+    void *mark;
-+
 +    CHECK_REQUEST(cx);
++
++    // This is not a simple variation of JS_CallFunctionValue because JSOP_NEW
++    // is not a simple variation of JSOP_CALL. We have to determine what class
++    // of object to create, create it, and clamp the return value to an object,
++    // among other details. js_InvokeConstructor does the hard work.
++    void *mark;
 +    jsval *vp = js_AllocStack(cx, 2 + argc, &mark);
 +    if (!vp)
 +        return NULL;
@@ -29,21 +165,22 @@ diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
 +    JSObject *obj = ok ? JSVAL_TO_OBJECT(vp[0]) : NULL;
 +
 +    js_FreeStack(cx, mark);
++    LAST_FRAME_CHECKS(cx, ok);
 +    return obj;
 +}
 +
- static JSBool
- DefinePropertyById(JSContext *cx, JSObject *obj, jsid id, jsval value,
-                    JSPropertyOp getter, JSPropertyOp setter, uintN attrs,
-                    uintN flags, intN tinyid)
+ JS_PUBLIC_API(JSOperationCallback)
+ JS_SetOperationCallback(JSContext *cx, JSOperationCallback callback)
  {
-     if (flags != 0 && OBJ_IS_NATIVE(obj)) {
-         JSAutoResolveFlags rf(cx, JSRESOLVE_QUALIFIED | JSRESOLVE_DECLARING);
-         return !!js_DefineNativeProperty(cx, obj, id, value, getter, setter,
+ #ifdef JS_THREADSAFE
+     JS_ASSERT(CURRENT_THREAD_IS_ME(cx->thread));
+ #endif
+     JSOperationCallback old = cx->operationCallback;
+     cx->operationCallback = callback;
 diff --git a/js/src/jsapi.h b/js/src/jsapi.h
 --- a/js/src/jsapi.h
 +++ b/js/src/jsapi.h
-@@ -1674,16 +1674,19 @@ extern JS_PUBLIC_API(JSObject *)
+@@ -1701,16 +1701,19 @@ extern JS_PUBLIC_API(JSObject *)
  JS_ConstructObject(JSContext *cx, JSClass *clasp, JSObject *proto,
                     JSObject *parent);
  

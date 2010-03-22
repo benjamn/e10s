@@ -350,7 +350,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  
      *ok = JS_FALSE;
      *statep = in_state;
-     *idp = EmptyString();
+     idp->Truncate();
      
      JSContext* cx = Manager()->GetContext();
 -    JSAutoRequest request(cx);
@@ -363,7 +363,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
          static_cast<nsTArray<nsString>*>(JS_GetPrivate(cx, state));
  
      if (!strIds || !JS_GetReservedSlot(cx, state, sNextIdIndexSlot, &v))
-@@ -419,17 +450,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
+@@ -422,17 +453,17 @@ ObjectWrapperChild::AnswerNewEnumerateNe
  }
      
  bool
@@ -378,11 +378,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      if (!JSObject_from_JSVariant(cx, in_state, &state))
          return false;
  
-     nsTArray<nsString>* strIds =
-         static_cast<nsTArray<nsString>*>(JS_GetPrivate(cx, state));
+     CPOW_NewEnumerateState_Finalize(cx, state);
  
-     if (strIds) {
-@@ -445,17 +476,17 @@ ObjectWrapperChild::AnswerNewResolve(con
+     return true;
+ }
+@@ -442,17 +473,17 @@ ObjectWrapperChild::AnswerNewResolve(con
                                       JSBool* ok, PObjectWrapperChild** obj2)
  {
      jsid interned_id;
@@ -401,7 +401,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                NS_ConvertUTF16toUTF8(id).get()));
  
      JSPropertyDescriptor desc;
-@@ -471,34 +502,34 @@ ObjectWrapperChild::AnswerNewResolve(con
+@@ -468,34 +499,34 @@ ObjectWrapperChild::AnswerNewResolve(con
  }
  
  bool
@@ -439,7 +439,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      AutoJSArgs args;
      PRUint32 argc = argv.Length();
      jsval *jsargs = args.AppendElements(argc);
-@@ -517,17 +548,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+@@ -516,17 +547,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
  
  bool
  ObjectWrapperChild::AnswerConstruct(const nsTArray<JSVariant>& argv,
@@ -454,11 +454,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      AutoJSArgs args;
      PRUint32 argc = argv.Length();
      jsval* jsargs = args.AppendElements(argc);
+     if (!jsargs)
+         return false;
      JSAutoTempValueRooter tvr(cx, argc, jsargs);
  
-     for (PRUint32 i = 0; i < argc; ++i)
-         if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
-@@ -542,14 +573,14 @@ ObjectWrapperChild::AnswerConstruct(cons
+@@ -543,14 +574,14 @@ ObjectWrapperChild::AnswerConstruct(cons
  }
  
  bool
