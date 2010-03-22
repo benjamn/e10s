@@ -249,12 +249,12 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      JSAutoTempValueRooter tvr(cx, state);
      
      for (JSObject* proto = mObj;
-@@ -399,56 +461,56 @@ ObjectWrapperChild::AnswerNewEnumerateIn
-             return false;
-         strIds = new nsTArray<nsString>(ids.length());
+@@ -401,56 +463,56 @@ ObjectWrapperChild::AnswerNewEnumerateIn
          for (uint i = 0; i < ids.length(); ++i)
-             if (!jsid_to_nsString(cx, ids[i], strIds->AppendElement()))
+             if (!jsid_to_nsString(cx, ids[i], strIds->AppendElement())) {
+                 delete strIds;
                  return false;
+             }
      }
      *idp = strIds->Length();
  
@@ -315,7 +315,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      JSObject* state;
  
-@@ -466,107 +528,107 @@ ObjectWrapperChild::RecvNewEnumerateDest
+@@ -468,112 +530,112 @@ ObjectWrapperChild::RecvNewEnumerateDest
          JS_SetPrivate(cx, state, NULL);
      }
  
@@ -385,12 +385,15 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      if (!JSObject_from_PObjectWrapperChild(cx, receiver, &obj))
          return false;
  
-     jsval rv, jsargs[argv.Length()];
-     JSAutoTempValueRooter tvr(cx, argv.Length(), jsargs);
-     for (PRUint32 i = 0; i < argv.Length(); ++i)
+     PRUint32 argc = argv.Length();
+     nsTArray<jsval> args(argc);
+     jsval *jsargs = args.Elements();
+     JSAutoTempValueRooter tvr(cx, argc, jsargs);
+     for (PRUint32 i = 0; i < argc; ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
              return false;
  
+     jsval rv;
 -    *ok = JS_CallFunctionValue(cx, obj, OBJECT_TO_JSVAL(mObj),
 -                               argv.Length(), jsargs, &rv);
 +    *status = JS_CallFunctionValue(cx, obj, OBJECT_TO_JSVAL(mObj),
@@ -411,13 +414,15 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      AutoContextPusher acp(cx);
 +    AutoCheckOperation aco(this, status);
  
-     jsval jsargs[argv.Length()];
-     JSAutoTempValueRooter tvr(cx, argv.Length(), jsargs);
-     for (PRUint32 i = 0; i < argv.Length(); ++i)
+     PRUint32 argc = argv.Length();
+     nsTArray<jsval> args(argc);
+     jsval* jsargs = args.Elements();
+     JSAutoTempValueRooter tvr(cx, argc, jsargs);
+     for (PRUint32 i = 0; i < argc; ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
              return false;
  
-     JSObject* obj = JS_New(cx, mObj, argv.Length(), jsargs);
+     JSObject* obj = JS_New(cx, mObj, argc, jsargs);
  
 -    *ok = !!obj;
 +    *status = !!obj;
