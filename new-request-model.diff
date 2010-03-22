@@ -401,7 +401,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
                NS_ConvertUTF16toUTF8(id).get()));
  
      JSPropertyDescriptor desc;
-@@ -471,29 +502,29 @@ ObjectWrapperChild::AnswerNewResolve(con
+@@ -471,34 +502,34 @@ ObjectWrapperChild::AnswerNewResolve(con
  }
  
  bool
@@ -414,6 +414,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +    AutoContextPusher acp(cx);
      *ok = JS_ConvertValue(cx, OBJECT_TO_JSVAL(mObj), type, &v);
      return jsval_to_JSVariant(cx, *ok ? v : JSVAL_VOID, vp);
+ }
+ 
+ namespace {
+     // Should be an overestimate of typical JS function arity.
+     typedef nsAutoTArray<jsval, 5> AutoJSArgs;
  }
  
  bool
@@ -431,10 +436,10 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      if (!JSObject_from_PObjectWrapperChild(cx, receiver, &obj))
          return false;
  
+     AutoJSArgs args;
      PRUint32 argc = argv.Length();
-     nsTArray<jsval> args(argc);
-     jsval *jsargs = args.Elements();
-@@ -511,17 +542,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+     jsval *jsargs = args.AppendElements(argc);
+@@ -517,17 +548,17 @@ ObjectWrapperChild::AnswerCall(PObjectWr
  
  bool
  ObjectWrapperChild::AnswerConstruct(const nsTArray<JSVariant>& argv,
@@ -446,14 +451,14 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 -    JSAutoRequest request(cx);
 +    AutoContextPusher acp(cx);
  
+     AutoJSArgs args;
      PRUint32 argc = argv.Length();
-     nsTArray<jsval> args(argc);
-     jsval* jsargs = args.Elements();
+     jsval* jsargs = args.AppendElements(argc);
      JSAutoTempValueRooter tvr(cx, argc, jsargs);
+ 
      for (PRUint32 i = 0; i < argc; ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
-             return false;
-@@ -535,14 +566,14 @@ ObjectWrapperChild::AnswerConstruct(cons
+@@ -542,14 +573,14 @@ ObjectWrapperChild::AnswerConstruct(cons
  }
  
  bool

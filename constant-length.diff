@@ -1,7 +1,25 @@
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -489,44 +489,49 @@ ObjectWrapperChild::AnswerCall(PObjectWr
+@@ -476,57 +476,69 @@ ObjectWrapperChild::AnswerConvert(const 
+ {
+     jsval v;
+     JSContext* cx = Manager()->GetContext();
+     JSAutoRequest request(cx);
+     *ok = JS_ConvertValue(cx, OBJECT_TO_JSVAL(mObj), type, &v);
+     return jsval_to_JSVariant(cx, *ok ? v : JSVAL_VOID, vp);
+ }
+ 
++namespace {
++    // Should be an overestimate of typical JS function arity.
++    typedef nsAutoTArray<jsval, 5> AutoJSArgs;
++}
++
+ bool
+ ObjectWrapperChild::AnswerCall(PObjectWrapperChild* receiver, const nsTArray<JSVariant>& argv,
+                                JSBool* ok, JSVariant* rval)
+ {
+     *ok = JS_FALSE;
      
      JSContext* cx = Manager()->GetContext();
      JSAutoRequest request(cx);
@@ -13,10 +31,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 -    jsval rv, jsargs[argv.Length()];
 -    JSAutoTempValueRooter tvr(cx, argv.Length(), jsargs);
 -    for (PRUint32 i = 0; i < argv.Length(); ++i)
++    AutoJSArgs args;
 +    PRUint32 argc = argv.Length();
-+    nsTArray<jsval> args(argc);
-+    jsval *jsargs = args.Elements();
++    jsval *jsargs = args.AppendElements(argc);
 +    JSAutoTempValueRooter tvr(cx, argc, jsargs);
++
 +    for (PRUint32 i = 0; i < argc; ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
              return false;
@@ -40,10 +59,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 -    jsval jsargs[argv.Length()];
 -    JSAutoTempValueRooter tvr(cx, argv.Length(), jsargs);
 -    for (PRUint32 i = 0; i < argv.Length(); ++i)
++    AutoJSArgs args;
 +    PRUint32 argc = argv.Length();
-+    nsTArray<jsval> args(argc);
-+    jsval* jsargs = args.Elements();
++    jsval* jsargs = args.AppendElements(argc);
 +    JSAutoTempValueRooter tvr(cx, argc, jsargs);
++
 +    for (PRUint32 i = 0; i < argc; ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
              return false;

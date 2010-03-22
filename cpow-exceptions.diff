@@ -315,7 +315,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
  {
      JSObject* state;
  
-@@ -468,112 +530,112 @@ ObjectWrapperChild::RecvNewEnumerateDest
+@@ -468,119 +530,119 @@ ObjectWrapperChild::RecvNewEnumerateDest
          JS_SetPrivate(cx, state, NULL);
      }
  
@@ -370,6 +370,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 +    return jsval_to_JSVariant(cx, aco.Ok() ? v : JSVAL_VOID, vp);
  }
  
+ namespace {
+     // Should be an overestimate of typical JS function arity.
+     typedef nsAutoTArray<jsval, 5> AutoJSArgs;
+ }
+ 
  bool
  ObjectWrapperChild::AnswerCall(PObjectWrapperChild* receiver, const nsTArray<JSVariant>& argv,
 -                               JSBool* ok, JSVariant* rval)
@@ -385,10 +390,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      if (!JSObject_from_PObjectWrapperChild(cx, receiver, &obj))
          return false;
  
+     AutoJSArgs args;
      PRUint32 argc = argv.Length();
-     nsTArray<jsval> args(argc);
-     jsval *jsargs = args.Elements();
+     jsval *jsargs = args.AppendElements(argc);
      JSAutoTempValueRooter tvr(cx, argc, jsargs);
+ 
      for (PRUint32 i = 0; i < argc; ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
              return false;
@@ -414,10 +420,11 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
      AutoContextPusher acp(cx);
 +    AutoCheckOperation aco(this, status);
  
+     AutoJSArgs args;
      PRUint32 argc = argv.Length();
-     nsTArray<jsval> args(argc);
-     jsval* jsargs = args.Elements();
+     jsval* jsargs = args.AppendElements(argc);
      JSAutoTempValueRooter tvr(cx, argc, jsargs);
+ 
      for (PRUint32 i = 0; i < argc; ++i)
          if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
              return false;
