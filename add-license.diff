@@ -1,0 +1,570 @@
+diff --git a/js/src/ipc/CPOWTypes.h b/js/src/ipc/CPOWTypes.h
+--- a/js/src/ipc/CPOWTypes.h
++++ b/js/src/ipc/CPOWTypes.h
+@@ -1,8 +1,48 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
+ #ifndef mozilla_jsipc_ContextWrapperTypes_h__
+ #define mozilla_jsipc_ContextWrapperTypes_h__
+ 
+ #include "jsapi.h"
+ #include "jspubtd.h"
+ 
+ namespace mozilla {
+ namespace jsipc {
+diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
+--- a/js/src/ipc/ContextWrapperChild.h
++++ b/js/src/ipc/ContextWrapperChild.h
+@@ -1,8 +1,48 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
+ #ifndef mozilla_jsipc_ContextWrapperChild_h__
+ #define mozilla_jsipc_ContextWrapperChild_h__
+ 
+ #include "mozilla/jsipc/PContextWrapperChild.h"
+ #include "mozilla/jsipc/ObjectWrapperChild.h"
+ 
+ #include "jsapi.h"
+ #include "nsClassHashtable.h"
+diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent.h
+--- a/js/src/ipc/ContextWrapperParent.h
++++ b/js/src/ipc/ContextWrapperParent.h
+@@ -1,8 +1,48 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
+ #ifndef mozilla_jsipc_ContextWrapperParent_h__
+ #define mozilla_jsipc_ContextWrapperParent_h__
+ 
+ #include "mozilla/jsipc/PContextWrapperParent.h"
+ #include "mozilla/jsipc/ObjectWrapperParent.h"
+ 
+ #include "jsapi.h"
+ #include "nsAutoJSValHolder.h"
+diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
+--- a/js/src/ipc/Makefile.in
++++ b/js/src/ipc/Makefile.in
+@@ -1,12 +1,49 @@
+-DEPTH		= ../../..
+-topsrcdir	= @top_srcdir@
+-srcdir		= @srcdir@
+-VPATH		= @srcdir@
++# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is mozilla.org code.
++#
++# The Initial Developer of the Original Code is
++# The Mozilla Foundation.
++# Portions created by the Initial Developer are Copyright (C) 2010
++# the Initial Developer. All Rights Reserved.
++#
++# Contributor(s):
++#   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either of the GNU General Public License Version 2 or later (the "GPL"),
++# or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK *****
++
++DEPTH     = ../../..
++topsrcdir = @top_srcdir@
++srcdir    = @srcdir@
++VPATH     = @srcdir@
+ 
+ include $(DEPTH)/config/autoconf.mk
+ 
+ MODULE = js
+ LIBRARY_NAME = jsipc_s
+ LIBXUL_LIBRARY = 1
+ FORCE_STATIC_LIB = 1
+ EXPORT_LIBRARY = 1
+diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
+--- a/js/src/ipc/ObjectWrapperChild.cpp
++++ b/js/src/ipc/ObjectWrapperChild.cpp
+@@ -1,8 +1,48 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
+ #include "mozilla/jsipc/ContextWrapperChild.h"
+ #include "mozilla/jsipc/ObjectWrapperChild.h"
+ #include "mozilla/jsipc/CPOWTypes.h"
+ 
+ #include "nsTArray.h"
+ 
+ using namespace mozilla::jsipc;
+ 
+diff --git a/js/src/ipc/ObjectWrapperChild.h b/js/src/ipc/ObjectWrapperChild.h
+--- a/js/src/ipc/ObjectWrapperChild.h
++++ b/js/src/ipc/ObjectWrapperChild.h
+@@ -1,8 +1,48 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
+ #ifndef mozilla_jsipc_ObjectWrapperChild_h__
+ #define mozilla_jsipc_ObjectWrapperChild_h__
+ 
+ #include "mozilla/jsipc/PObjectWrapperChild.h"
+ 
+ using mozilla::jsipc::JSVariant;
+ 
+ namespace mozilla {
+diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
+--- a/js/src/ipc/ObjectWrapperParent.cpp
++++ b/js/src/ipc/ObjectWrapperParent.cpp
+@@ -1,8 +1,48 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
+ #include "mozilla/jsipc/ObjectWrapperParent.h"
+ #include "mozilla/jsipc/ContextWrapperParent.h"
+ #include "mozilla/jsipc/CPOWTypes.h"
+ 
+ #include "jsobj.h"
+ #include "jsfun.h"
+ #include "jsutil.h"
+ 
+diff --git a/js/src/ipc/ObjectWrapperParent.h b/js/src/ipc/ObjectWrapperParent.h
+--- a/js/src/ipc/ObjectWrapperParent.h
++++ b/js/src/ipc/ObjectWrapperParent.h
+@@ -1,8 +1,48 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
+ #ifndef mozilla_jsipc_ObjectWrapperParent_h__
+ #define mozilla_jsipc_ObjectWrapperParent_h__
+ 
+ #include "mozilla/jsipc/PObjectWrapperParent.h"
+ #include "jsapi.h"
+ #include "nsAutoJSValHolder.h"
+ 
+ namespace mozilla {
+diff --git a/js/src/ipc/PContextWrapper.ipdl b/js/src/ipc/PContextWrapper.ipdl
+--- a/js/src/ipc/PContextWrapper.ipdl
++++ b/js/src/ipc/PContextWrapper.ipdl
+@@ -1,8 +1,48 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
+ include protocol "PIFrameEmbedding.ipdl";
+ include protocol "PTestShell.ipdl";
+ include protocol "PObjectWrapper.ipdl";
+ 
+ namespace mozilla {
+ namespace jsipc {
+ 
+ rpc protocol PContextWrapper
+diff --git a/js/src/ipc/PObjectWrapper.ipdl b/js/src/ipc/PObjectWrapper.ipdl
+--- a/js/src/ipc/PObjectWrapper.ipdl
++++ b/js/src/ipc/PObjectWrapper.ipdl
+@@ -1,8 +1,48 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
+ include protocol "PContextWrapper.ipdl";
+ 
+ include "mozilla/jsipc/CPOWTypes.h";
+ 
+ using mozilla::jsipc::void_t;
+ using JSType;
+ using JSBool;
+ 
+diff --git a/js/src/ipc/ipdl.mk b/js/src/ipc/ipdl.mk
+--- a/js/src/ipc/ipdl.mk
++++ b/js/src/ipc/ipdl.mk
+@@ -1,4 +1,41 @@
++# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is mozilla.org code.
++#
++# The Initial Developer of the Original Code is
++# The Mozilla Foundation.
++# Portions created by the Initial Developer are Copyright (C) 2010
++# the Initial Developer. All Rights Reserved.
++#
++# Contributor(s):
++#   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either of the GNU General Public License Version 2 or later (the "GPL"),
++# or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK *****
++
+ IPDLSRCS = \
+   PContextWrapper.ipdl \
+   PObjectWrapper.ipdl \
+   $(NULL)

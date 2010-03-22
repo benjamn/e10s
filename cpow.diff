@@ -256,9 +256,9 @@ diff --git a/content/xul/content/src/nsXULElement.h b/content/xul/content/src/ns
 diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 --- a/dom/ipc/ContentProcessChild.cpp
 +++ b/dom/ipc/ContentProcessChild.cpp
-@@ -36,16 +36,18 @@
-  *
-  * ***** END LICENSE BLOCK ***** */
+@@ -40,16 +40,18 @@
+ #include <QApplication>
+ #endif
  
  #include "ContentProcessChild.h"
  #include "TabChild.h"
@@ -275,7 +275,7 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
  
  using namespace mozilla::ipc;
  using namespace mozilla::net;
-@@ -110,16 +112,23 @@ ContentProcessChild::AllocPTestShell()
+@@ -123,16 +125,23 @@ ContentProcessChild::AllocPTestShell()
  
  bool
  ContentProcessChild::DeallocPTestShell(PTestShellChild* shell)
@@ -302,7 +302,7 @@ diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
 diff --git a/dom/ipc/ContentProcessChild.h b/dom/ipc/ContentProcessChild.h
 --- a/dom/ipc/ContentProcessChild.h
 +++ b/dom/ipc/ContentProcessChild.h
-@@ -62,16 +62,17 @@ public:
+@@ -66,16 +66,17 @@ public:
          return sSingleton;
      }
  
@@ -376,26 +376,7 @@ diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
 diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 --- a/dom/ipc/TabChild.cpp
 +++ b/dom/ipc/TabChild.cpp
-@@ -62,29 +62,37 @@
- #include "nsIXPCSecurityManager.h"
- #include "nsIJSContextStack.h"
- #include "nsComponentManagerUtils.h"
- #include "nsIScriptSecurityManager.h"
- #include "nsScriptLoader.h"
- #include "nsPIWindowRoot.h"
- #include "nsIScriptContext.h"
- 
-+#include "mozilla/dom/PContentProcessChild.h"
-+#include "mozilla/jsipc/ContextWrapperChild.h"
-+
-+#include "nsIDocument.h"
-+#include "nsIScriptGlobalObject.h"
-+#include "jscntxt.h"
-+
- #ifdef MOZ_WIDGET_QT
- #include <QX11EmbedWidget>
- #include <QApplication>
- #include <QGraphicsView>
+@@ -73,17 +73,25 @@
  #include <QGraphicsWidget>
  #endif
  
@@ -404,17 +385,24 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  #include <gtk/gtk.h>
  #endif
  
++#include "mozilla/dom/PContentProcessChild.h"
++#include "mozilla/jsipc/ContextWrapperChild.h"
++
++#include "nsIDocument.h"
++#include "nsIScriptGlobalObject.h"
++#include "jscntxt.h"
++
  using namespace mozilla::dom;
 +using namespace mozilla::jsipc;
  
- #ifdef MOZ_WIDGET_QT
- static QApplication *gQApp = nsnull;
- extern int    gArgc;
- extern char **gArgv;
- #endif
- 
  NS_IMPL_ISUPPORTS1(ContentListener, nsIDOMEventListener)
-@@ -383,16 +391,19 @@ TabChild::RecvloadURL(const nsCString& u
+ 
+ NS_IMETHODIMP
+ ContentListener::HandleEvent(nsIDOMEvent* aEvent)
+ {
+   RemoteDOMEvent remoteEvent;
+   remoteEvent.mEvent = do_QueryInterface(aEvent);
+@@ -368,16 +376,19 @@ TabChild::RecvloadURL(const nsCString& u
      printf("loading %s, %d\n", uri.get(), NS_IsMainThread());
  
      nsresult rv = mWebNav->LoadURI(NS_ConvertUTF8toUTF16(uri).get(),
@@ -434,7 +422,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -441,16 +452,47 @@ TabChild::RecvsendKeyEvent(const nsStrin
+@@ -426,16 +437,47 @@ TabChild::RecvsendKeyEvent(const nsStrin
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
    PRBool ignored = PR_FALSE;

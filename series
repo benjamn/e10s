@@ -1,6 +1,7 @@
 xpcshell-gczeal.diff
 js_new.diff
 cpow.diff
+add-license.diff
 bent-cpow-comments.diff
 new-request-model.diff
 test-cpow.diff
