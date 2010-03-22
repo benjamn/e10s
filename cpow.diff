@@ -3072,7 +3072,7 @@ new file mode 100644
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp
 +++ b/js/src/xpconnect/shell/xpcshell.cpp
-@@ -691,16 +691,31 @@ SendCommand(JSContext* cx,
+@@ -676,16 +676,31 @@ SendCommand(JSContext* cx,
      if (!XRE_SendTestShellCommand(cx, str, argc > 1 ? &argv[1] : nsnull)) {
          JS_ReportError(cx, "Couldn't send command!");
          return JS_FALSE;
@@ -3104,8 +3104,8 @@ diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshe
   */
  static const struct {
      const char  *name;
-@@ -811,16 +826,17 @@ static JSFunctionSpec glob_functions[] =
- #endif
+@@ -793,16 +808,17 @@ static JSFunctionSpec glob_functions[] =
+     {"gc",              GC,             0,0,0},
      {"clear",           Clear,          1,0,0},
      {"options",         Options,        0,0,0},
  #ifdef DEBUG
