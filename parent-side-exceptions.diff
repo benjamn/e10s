@@ -1,7 +1,9 @@
+CPOW-specific exceptions (bug 541003).
+
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -102,26 +102,37 @@ ObjectWrapperParent::CheckOperation(JSCo
+@@ -142,26 +142,37 @@ ObjectWrapperParent::CheckOperation(JSCo
          {
              jsval thrown;
              if (jsval_from_JSVariant(cx, status->get_JSVariant(), &thrown))
@@ -40,7 +42,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
        ObjectWrapperParent::CPOW_AddProperty,
        ObjectWrapperParent::CPOW_DelProperty,
        ObjectWrapperParent::CPOW_GetProperty,
-@@ -205,17 +216,17 @@ ObjectWrapperParent::jsval_to_JSVariant(
+@@ -245,17 +256,17 @@ ObjectWrapperParent::jsval_to_JSVariant(
      case JSTYPE_FUNCTION:
          // CPOWs can fool JS_TypeOfValue into returning JSTYPE_FUNCTION
          // because they have a call hook, but CPOWs are really objects, so
@@ -59,7 +61,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
                                  JS_GetStringLength(JSVAL_TO_STRING(from)));
          return true;
      case JSTYPE_NUMBER:
-@@ -224,18 +235,19 @@ ObjectWrapperParent::jsval_to_JSVariant(
+@@ -264,18 +275,19 @@ ObjectWrapperParent::jsval_to_JSVariant(
          else if (JSVAL_IS_DOUBLE(from))
              *to = *JSVAL_TO_DOUBLE(from);
          else return false;
@@ -80,7 +82,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
                                            jsval* to)
  {
      switch (from.type()) {
-@@ -339,17 +351,17 @@ jsval_to_nsString(JSContext* cx, jsval f
+@@ -379,17 +391,17 @@ jsval_to_nsString(JSContext* cx, jsval f
  ObjectWrapperParent::CPOW_AddProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
  {
@@ -99,7 +101,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
      nsString in_id;
  
-@@ -366,17 +378,17 @@ ObjectWrapperParent::CPOW_AddProperty(JS
+@@ -406,17 +418,17 @@ ObjectWrapperParent::CPOW_AddProperty(JS
  ObjectWrapperParent::CPOW_GetProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
  {
@@ -118,7 +120,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      if (!jsval_to_nsString(cx, id, &in_id))
          return JS_FALSE;
  
-@@ -393,27 +405,27 @@ ObjectWrapperParent::CPOW_GetProperty(JS
+@@ -433,27 +445,27 @@ ObjectWrapperParent::CPOW_GetProperty(JS
  ObjectWrapperParent::CPOW_SetProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
  {
@@ -148,7 +150,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
              aco.Ok() &&
              self->jsval_from_JSVariant(cx, out_v, vp));
  }    
-@@ -422,17 +434,17 @@ ObjectWrapperParent::CPOW_SetProperty(JS
+@@ -462,17 +474,17 @@ ObjectWrapperParent::CPOW_SetProperty(JS
  ObjectWrapperParent::CPOW_DelProperty(JSContext *cx, JSObject *obj, jsval id,
                                        jsval *vp)
  {
@@ -167,7 +169,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      if (!jsval_to_nsString(cx, id, &in_id))
          return JS_FALSE;
  
-@@ -503,41 +515,42 @@ ObjectWrapperParent::NewEnumerateDestroy
+@@ -543,41 +555,42 @@ ObjectWrapperParent::NewEnumerateDestroy
  ObjectWrapperParent::CPOW_NewEnumerate(JSContext *cx, JSObject *obj,
                                         JSIterateOp enum_op, jsval *statep,
                                         jsid *idp)
@@ -212,7 +214,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      if (!jsval_to_nsString(cx, id, &in_id))
          return JS_FALSE;
  
-@@ -564,17 +577,17 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
+@@ -604,17 +617,17 @@ ObjectWrapperParent::CPOW_NewResolve(JSC
  ObjectWrapperParent::CPOW_Convert(JSContext *cx, JSObject *obj, JSType type,
                                    jsval *vp)
  {
@@ -231,7 +233,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
  /*static*/ void
  ObjectWrapperParent::CPOW_Finalize(JSContext* cx, JSObject* obj)
-@@ -590,34 +603,34 @@ ObjectWrapperParent::CPOW_Finalize(JSCon
+@@ -630,34 +643,34 @@ ObjectWrapperParent::CPOW_Finalize(JSCon
  ObjectWrapperParent::CPOW_Call(JSContext* cx, JSObject* obj, uintN argc,
                                 jsval* argv, jsval* rval)
  {
@@ -268,7 +270,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
              aco.Ok() &&
              jsval_from_JSVariant(cx, out_rval, rval));
  }
-@@ -626,17 +639,17 @@ ObjectWrapperParent::CPOW_Call(JSContext
+@@ -666,17 +679,17 @@ ObjectWrapperParent::CPOW_Call(JSContext
  ObjectWrapperParent::CPOW_Construct(JSContext *cx, JSObject *obj, uintN argc,
                                      jsval *argv, jsval *rval)
  {
@@ -287,7 +289,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
          if (!jsval_to_JSVariant(cx, argv[i], in_argv.AppendElement()))
              return JS_FALSE;
  
-@@ -654,17 +667,17 @@ ObjectWrapperParent::CPOW_HasInstance(JS
+@@ -694,17 +707,17 @@ ObjectWrapperParent::CPOW_HasInstance(JS
                                        JSBool *bp)
  {
      CPOW_LOG(("Calling CPOW_HasInstance..."));
@@ -306,7 +308,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
      if (!jsval_to_JSVariant(cx, v, &in_v))
          return JS_FALSE;
  
-@@ -679,17 +692,17 @@ ObjectWrapperParent::CPOW_Equality(JSCon
+@@ -719,17 +732,17 @@ ObjectWrapperParent::CPOW_Equality(JSCon
                                     JSBool *bp)
  {
      CPOW_LOG(("Calling CPOW_Equality..."));

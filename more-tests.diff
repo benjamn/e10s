@@ -1,3 +1,5 @@
+More CPOW tests (bug 516522).
+
 diff --git a/js/src/ipc/tests/adhoc/test.xul b/js/src/ipc/tests/adhoc/test.xul
 --- a/js/src/ipc/tests/adhoc/test.xul
 +++ b/js/src/ipc/tests/adhoc/test.xul
