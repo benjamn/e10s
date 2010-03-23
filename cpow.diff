@@ -1379,7 +1379,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,540 @@
+@@ -0,0 +1,556 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
 + * vim: set ts=8 sw=4 et tw=80:
 + *
@@ -1860,6 +1860,11 @@ new file mode 100644
 +    return jsval_to_JSVariant(cx, *ok ? v : JSVAL_VOID, vp);
 +}
 +
++namespace {
++    // Should be an overestimate of typical JS function arity.
++    typedef nsAutoTArray<jsval, 5> AutoJSArgs;
++}
++
 +bool
 +ObjectWrapperChild::AnswerCall(PObjectWrapperChild* receiver, const nsTArray<JSVariant>& argv,
 +                               JSBool* ok, JSVariant* rval)
@@ -1873,12 +1878,18 @@ new file mode 100644
 +    if (!JSObject_from_PObjectWrapperChild(cx, receiver, &obj))
 +        return false;
 +
-+    jsval rv, jsargs[argv.Length()];
-+    JSAutoTempValueRooter tvr(cx, argv.Length(), jsargs);
-+    for (PRUint32 i = 0; i < argv.Length(); ++i)
++    AutoJSArgs args;
++    PRUint32 argc = argv.Length();
++    jsval *jsargs = args.AppendElements(argc);
++    if (!jsargs)
++        return false;
++    JSAutoTempValueRooter tvr(cx, argc, jsargs);
++
++    for (PRUint32 i = 0; i < argc; ++i)
 +        if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
 +            return false;
 +
++    jsval rv;
 +    *ok = JS_CallFunctionValue(cx, obj, OBJECT_TO_JSVAL(mObj),
 +                               argv.Length(), jsargs, &rv);
 +
@@ -1894,13 +1905,18 @@ new file mode 100644
 +    JSContext* cx = Manager()->GetContext();
 +    JSAutoRequest request(cx);
 +
-+    jsval jsargs[argv.Length()];
-+    JSAutoTempValueRooter tvr(cx, argv.Length(), jsargs);
-+    for (PRUint32 i = 0; i < argv.Length(); ++i)
++    AutoJSArgs args;
++    PRUint32 argc = argv.Length();
++    jsval* jsargs = args.AppendElements(argc);
++    if (!jsargs)
++        return false;
++    JSAutoTempValueRooter tvr(cx, argc, jsargs);
++
++    for (PRUint32 i = 0; i < argc; ++i)
 +        if (!jsval_from_JSVariant(cx, argv.ElementAt(i), jsargs + i))
 +            return false;
 +
-+    JSObject* obj = JS_New(cx, mObj, argv.Length(), jsargs);
++    JSObject* obj = JS_New(cx, mObj, argc, jsargs);
 +
 +    *ok = !!obj;
 +    *rval = Manager()->GetOrCreateWrapper(obj);
