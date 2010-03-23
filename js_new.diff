@@ -3,7 +3,7 @@
 # Date 1268839333 18000
 # Node ID 869bebcf1f211030a0ca651f0dfec22ef5ce0eb5
 # Parent  25d07807a602515e04e6db5e90e091d031fb2c9e
-Bug 480850 - Add JSAPI function JS_New (identical to the patch already landed on TM). r=mrbkap.
+Bug 480850 - Add JSAPI function JS_New (identical to tracemonkey/rev/869bebcf1f21). r=mrbkap.
 
 diff --git a/js/src/jsapi-tests/Makefile.in b/js/src/jsapi-tests/Makefile.in
 --- a/js/src/jsapi-tests/Makefile.in

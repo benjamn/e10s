@@ -3,9 +3,7 @@
 # Date 1264127121 28800
 # Node ID 98650290e6d93dee49154350fe47a7bcff2f5c82
 # Parent  bbb4154a3247858a00568096d0e5477b56739200
-CPOW tests (bug 516522).
-* * *
-More CPOW tests (bug 516522).
+CPOW tests (bug 516522). r=jst
 
 diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
 --- a/js/src/ipc/Makefile.in
