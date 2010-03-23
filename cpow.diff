@@ -1405,7 +1405,7 @@ diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.c
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -0,0 +1,556 @@
+@@ -0,0 +1,558 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
 + * vim: set ts=8 sw=4 et tw=80:
 + *
@@ -1446,11 +1446,13 @@ new file mode 100644
 + *
 + * ***** END LICENSE BLOCK ***** */
 +
++#include "base/basictypes.h"
++#include "jscntxt.h"
++
 +#include "mozilla/jsipc/ContextWrapperChild.h"
 +#include "mozilla/jsipc/ObjectWrapperChild.h"
 +#include "mozilla/jsipc/CPOWTypes.h"
 +
-+#include "jscntxt.h"
 +#include "nsTArray.h"
 +
 +using namespace mozilla::jsipc;
