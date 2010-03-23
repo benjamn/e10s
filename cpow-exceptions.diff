@@ -7,6 +7,34 @@ Bug 541003 - CPOW: Support throwing arbitrary exceptions from content to chrome.
 * * *
 CPOW-specific exceptions (bug 541003). r=mrbkap
 
+diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
+--- a/dom/ipc/TabChild.cpp
++++ b/dom/ipc/TabChild.cpp
+@@ -31,22 +31,22 @@
+  * use your version of this file under the terms of the MPL, indicate your
+  * decision by deleting the provisions above and replace them with the notice
+  * and other provisions required by the GPL or the LGPL. If you do not delete
+  * the provisions above, a recipient may use your version of this file under
+  * the terms of any one of the MPL, the GPL or the LGPL.
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+-#include "jscntxt.h"
+-
+ #include "TabChild.h"
+ #include "mozilla/dom/PContentProcessChild.h"
+ #include "mozilla/jsipc/ContextWrapperChild.h"
+ 
++#include "jscntxt.h"
++
+ #include "nsIWebBrowser.h"
+ #include "nsEmbedCID.h"
+ #include "nsComponentManagerUtils.h"
+ #include "nsIBaseWindow.h"
+ #include "nsIDOMWindow.h"
+ #include "nsIDocShellTreeItem.h"
+ #include "nsThreadUtils.h"
+ #include "nsIInterfaceRequestorUtils.h"
 diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
 --- a/js/src/ipc/ObjectWrapperChild.cpp
 +++ b/js/src/ipc/ObjectWrapperChild.cpp

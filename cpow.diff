@@ -376,7 +376,43 @@ diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
 diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 --- a/dom/ipc/TabChild.cpp
 +++ b/dom/ipc/TabChild.cpp
-@@ -73,17 +73,25 @@
+@@ -31,17 +31,21 @@
+  * use your version of this file under the terms of the MPL, indicate your
+  * decision by deleting the provisions above and replace them with the notice
+  * and other provisions required by the GPL or the LGPL. If you do not delete
+  * the provisions above, a recipient may use your version of this file under
+  * the terms of any one of the MPL, the GPL or the LGPL.
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
++#include "jscntxt.h"
++
+ #include "TabChild.h"
++#include "mozilla/dom/PContentProcessChild.h"
++#include "mozilla/jsipc/ContextWrapperChild.h"
+ 
+ #include "nsIWebBrowser.h"
+ #include "nsEmbedCID.h"
+ #include "nsComponentManagerUtils.h"
+ #include "nsIBaseWindow.h"
+ #include "nsIDOMWindow.h"
+ #include "nsIDocShellTreeItem.h"
+ #include "nsThreadUtils.h"
+@@ -61,29 +65,32 @@
+ #include "nsIDOMClassInfo.h"
+ #include "nsIXPCSecurityManager.h"
+ #include "nsIJSContextStack.h"
+ #include "nsComponentManagerUtils.h"
+ #include "nsIScriptSecurityManager.h"
+ #include "nsScriptLoader.h"
+ #include "nsPIWindowRoot.h"
+ #include "nsIScriptContext.h"
++#include "nsIDocument.h"
++#include "nsIScriptGlobalObject.h"
+ 
+ #ifdef MOZ_WIDGET_QT
+ #include <QX11EmbedWidget>
+ #include <QGraphicsView>
  #include <QGraphicsWidget>
  #endif
  
@@ -385,13 +421,6 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  #include <gtk/gtk.h>
  #endif
  
-+#include "mozilla/dom/PContentProcessChild.h"
-+#include "mozilla/jsipc/ContextWrapperChild.h"
-+
-+#include "nsIDocument.h"
-+#include "nsIScriptGlobalObject.h"
-+#include "jscntxt.h"
-+
  using namespace mozilla::dom;
 +using namespace mozilla::jsipc;
  
@@ -402,7 +431,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
  {
    RemoteDOMEvent remoteEvent;
    remoteEvent.mEvent = do_QueryInterface(aEvent);
-@@ -368,16 +376,19 @@ TabChild::RecvloadURL(const nsCString& u
+@@ -368,16 +375,19 @@ TabChild::RecvloadURL(const nsCString& u
      printf("loading %s, %d\n", uri.get(), NS_IsMainThread());
  
      nsresult rv = mWebNav->LoadURI(NS_ConvertUTF8toUTF16(uri).get(),
@@ -422,7 +451,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -426,16 +437,47 @@ TabChild::RecvsendKeyEvent(const nsStrin
+@@ -426,16 +436,47 @@ TabChild::RecvsendKeyEvent(const nsStrin
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
    PRBool ignored = PR_FALSE;
