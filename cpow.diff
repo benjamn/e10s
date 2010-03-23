@@ -3,7 +3,7 @@
 # Date 1257540219 28800
 # Node ID c631b16ad5f0cc808c0fc910a3c2bfa6e539f9da
 # Parent  705a3964ed70a7145837f2b2eeba9c0ce6d68bb8
-Bug 516522 - CPOW: Cross-Process (JavaScript) Object Wrapper.
+Bug 516522 - CPOW: Cross-Process (JavaScript) Object Wrapper. r=mrbkap r=bent sr=jst
 
 diff --git a/content/base/public/nsIFrameLoader.idl b/content/base/public/nsIFrameLoader.idl
 --- a/content/base/public/nsIFrameLoader.idl
