@@ -3,7 +3,7 @@
 # Date 1268839333 18000
 # Node ID 869bebcf1f211030a0ca651f0dfec22ef5ce0eb5
 # Parent  25d07807a602515e04e6db5e90e091d031fb2c9e
-Bug 480850 - Add JSAPI function JS_New. r=mrbkap.
+Bug 480850 - Add JSAPI function JS_New (identical to the patch already landed on TM). r=mrbkap.
 
 diff --git a/js/src/jsapi-tests/Makefile.in b/js/src/jsapi-tests/Makefile.in
 --- a/js/src/jsapi-tests/Makefile.in
@@ -135,7 +135,7 @@ new file mode 100644
 diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
 --- a/js/src/jsapi.cpp
 +++ b/js/src/jsapi.cpp
-@@ -4976,16 +4976,41 @@ JS_CallFunctionValue(JSContext *cx, JSOb
+@@ -4948,16 +4948,41 @@ JS_CallFunctionValue(JSContext *cx, JSOb
      JSBool ok;
  
      CHECK_REQUEST(cx);
@@ -180,7 +180,7 @@ diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
 diff --git a/js/src/jsapi.h b/js/src/jsapi.h
 --- a/js/src/jsapi.h
 +++ b/js/src/jsapi.h
-@@ -1701,16 +1701,19 @@ extern JS_PUBLIC_API(JSObject *)
+@@ -1674,16 +1674,19 @@ extern JS_PUBLIC_API(JSObject *)
  JS_ConstructObject(JSContext *cx, JSClass *clasp, JSObject *proto,
                     JSObject *parent);
  
