@@ -8,8 +8,7 @@ Bug 540126 - CPOW: Let PObjectWrapper actors use ContentProcessParent::RequestRu
 diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
 --- a/dom/ipc/TabParent.cpp
 +++ b/dom/ipc/TabParent.cpp
-@@ -34,30 +34,32 @@
-  * the provisions above, a recipient may use your version of this file under
+@@ -35,31 +35,33 @@
   * the terms of any one of the MPL, the GPL or the LGPL.
   *
   * ***** END LICENSE BLOCK ***** */
@@ -17,6 +16,7 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
  #include "TabParent.h"
  
  #include "mozilla/ipc/DocumentRendererParent.h"
+ #include "mozilla/ipc/DocumentRendererShmemParent.h"
 +#include "mozilla/dom/ContentProcessParent.h"
  #include "mozilla/jsipc/ContextWrapperParent.h"
  
@@ -32,6 +32,7 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
  #include "nsFrameLoader.h"
  
  using mozilla::ipc::DocumentRendererParent;
+ using mozilla::ipc::DocumentRendererShmemParent;
 +using mozilla::dom::ContentProcessParent;
  using mozilla::jsipc::PContextWrapperParent;
  using mozilla::jsipc::ContextWrapperParent;
@@ -41,7 +42,7 @@ diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
  
  TabParent::TabParent()
  {
-@@ -156,17 +158,19 @@ TabParent::DeallocPDocumentRenderer(PDoc
+@@ -174,17 +176,19 @@ TabParent::DeallocPDocumentRendererShmem
  {
      delete actor;
      return true;
