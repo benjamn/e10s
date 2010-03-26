@@ -1,0 +1,244 @@
+Bug 554942 - [E10s] Sort out what object TabParent::GetGlobalJSObject should return and how.
+
+diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
+--- a/dom/ipc/TabChild.cpp
++++ b/dom/ipc/TabChild.cpp
+@@ -471,17 +471,26 @@ TabChild::RecvloadURL(const nsCString& u
+ 
+     nsresult rv = mWebNav->LoadURI(NS_ConvertUTF8toUTF16(uri).get(),
+                                    nsIWebNavigation::LOAD_FLAGS_NONE,
+                                    NULL, NULL, NULL);
+     if (NS_FAILED(rv)) {
+         NS_WARNING("mWebNav->LoadURI failed. Eating exception, what else can I do?");
+     }
+ 
+-    SendPContextWrapperConstructor()->SendPObjectWrapperConstructor(true);
++    NS_ASSERTION(mContextWrapper, "Should have created mContextWrapper already");
++    if (mContextWrapper) {
++        JSContext* cx = mContextWrapper->GetContext();
++        JSAutoRequest ar(cx);
++        jsval cval;
++        if (JS_GetProperty(cx, JS_GetGlobalObject(cx), "content", &cval) &&
++            JSVAL_IS_OBJECT(cval))
++            mContextWrapper->GetOrCreateWrapper(JSVAL_TO_OBJECT(cval),
++                                                true); // make global
++    }
+ 
+     return true;
+ }
+ 
+ bool
+ TabChild::Recvmove(const PRUint32& x,
+                      const PRUint32& y,
+                      const PRUint32& width,
+@@ -531,38 +540,20 @@ TabChild::RecvsendKeyEvent(const nsStrin
+   nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
+   NS_ENSURE_TRUE(utils, true);
+   PRBool ignored = PR_FALSE;
+   utils->SendKeyEvent(aType, aKeyCode, aCharCode,
+                       aModifiers, aPreventDefault, &ignored);
+   return true;
+ }
+ 
+-static JSContext*
+-GetJSContextFrom(nsIWebNavigation* webNav)
+-{
+-    nsCOMPtr<nsIDOMDocument> domDocument;
+-    nsCOMPtr<nsIDocument> document;
+-    nsCOMPtr<nsIScriptGlobalObject> global;
+-    nsCOMPtr<nsIScriptContext> context;
+-
+-    if (NS_SUCCEEDED(webNav->GetDocument(getter_AddRefs(domDocument))) &&
+-        (document = do_QueryInterface(domDocument)) &&
+-        (global = do_QueryInterface(document->GetScriptGlobalObject())) &&
+-        (context = do_QueryInterface(global->GetContext()))) {
+-        return static_cast<JSContext*>(context->GetNativeContext());
+-    }
+-
+-    return NULL;
+-}
+-
+ PContextWrapperChild*
+ TabChild::AllocPContextWrapper()
+ {
+-    return new ContextWrapperChild(GetJSContextFrom(mWebNav));
++    return new ContextWrapperChild(mCx);
+ }
+ 
+ bool
+ TabChild::DeallocPContextWrapper(PContextWrapperChild* actor)
+ {
+     delete actor;
+     return true;
+ }
+diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
+--- a/dom/ipc/TabParent.cpp
++++ b/dom/ipc/TabParent.cpp
+@@ -432,38 +432,27 @@ TabParent::AllocPContextWrapper()
+ 
+ bool
+ TabParent::DeallocPContextWrapper(PContextWrapperParent* actor)
+ {
+     delete actor;
+     return true;
+ }
+ 
+-bool
++JSBool
+ TabParent::GetGlobalJSObject(JSContext* cx, JSObject** globalp)
+ {
+     // TODO Unify this code with TestShellParent::GetGlobalJSObject.
+     nsTArray<PContextWrapperParent*> cwps(1);
+     ManagedPContextWrapperParent(cwps);
+     if (cwps.Length() < 1)
+-        return false;
+-
+-    // This is temporary until we decide whether to return
+-    // TabChildGlobal or top level page's global object.
+-    // Currently this returns the page global object.
+-    // Note, TabChildGlobal's context doesn't report its global object here!
+-    NS_ASSERTION(cwps.Length() <= 2, "More than two PContextWrappers?");
++        return JS_FALSE;
++    NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
+     ContextWrapperParent* cwp = static_cast<ContextWrapperParent*>(cwps[0]);
+-    if (cwp->GetGlobalObjectWrapper()) {
+-      return cwp->GetGlobalJSObject(cx, globalp);
+-    } else if (cwps.Length() == 2) {
+-      cwp = static_cast<ContextWrapperParent*>(cwps[1]);
+-      return cwp->GetGlobalJSObject(cx, globalp);
+-    }
+-    return false;
++    return cwp->GetGlobalJSObject(cx, globalp);
+ }
+ 
+ void
+ TabParent::SendMouseEvent(const nsAString& aType, float aX, float aY,
+                           PRInt32 aButton, PRInt32 aClickCount,
+                           PRInt32 aModifiers, PRBool aIgnoreRootScrollFrame)
+ {
+   SendsendMouseEvent(nsString(aType), aX, aY, aButton, aClickCount,
+diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
+--- a/dom/ipc/TabParent.h
++++ b/dom/ipc/TabParent.h
+@@ -38,16 +38,17 @@
+ 
+ #ifndef mozilla_tabs_TabParent_h
+ #define mozilla_tabs_TabParent_h
+ 
+ #include "mozilla/dom/PIFrameEmbeddingParent.h"
+ 
+ #include "mozilla/ipc/GeckoChildProcessHost.h"
+ 
++#include "jsapi.h"
+ #include "nsCOMPtr.h"
+ #include "nsIBrowserDOMWindow.h"
+ #include "nsIWebProgress.h"
+ #include "nsIWebProgressListener.h"
+ #include "nsWeakReference.h"
+ 
+ class nsIURI;
+ class nsIDOMElement;
+@@ -154,17 +155,17 @@ public:
+             const PRInt32& bufw,
+             const PRInt32& bufh,
+             Shmem& buf);
+     virtual bool DeallocPDocumentRendererShmem(PDocumentRendererShmemParent* actor);
+ 
+     virtual PContextWrapperParent* AllocPContextWrapper();
+     virtual bool DeallocPContextWrapper(PContextWrapperParent* actor);
+ 
+-    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
++    JSBool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
+ 
+     NS_DECL_ISUPPORTS
+     NS_DECL_NSIWEBPROGRESS
+ 
+ protected:
+     TabParentListenerInfo* GetListenerInfo(nsIWebProgressListener *aListener);
+ 
+     bool ReceiveMessage(const nsString& aMessage,
+diff --git a/ipc/testshell/TestShellParent.cpp b/ipc/testshell/TestShellParent.cpp
+--- a/ipc/testshell/TestShellParent.cpp
++++ b/ipc/testshell/TestShellParent.cpp
+@@ -81,27 +81,27 @@ TestShellParent::AllocPContextWrapper()
+ 
+ bool
+ TestShellParent::DeallocPContextWrapper(PContextWrapperParent* actor)
+ {
+     delete actor;
+     return true;
+ }
+ 
+-bool
++JSBool
+ TestShellParent::GetGlobalJSObject(JSContext* cx, JSObject** globalp)
+ {
+     // TODO Unify this code with TabParent::GetGlobalJSObject.
+     nsTArray<PContextWrapperParent*> cwps(1);
+     ManagedPContextWrapperParent(cwps);
+     if (cwps.Length() < 1)
+-        return false;
++        return JS_FALSE;
+     NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
+     ContextWrapperParent* cwp = static_cast<ContextWrapperParent*>(cwps[0]);
+-    return (cwp->GetGlobalJSObject(cx, globalp));
++    return cwp->GetGlobalJSObject(cx, globalp);
+ }
+ 
+ JSBool
+ TestShellCommandParent::SetCallback(JSContext* aCx,
+                                     jsval aCallback)
+ {
+   if (!mCallback.Hold(aCx)) {
+     return JS_FALSE;
+diff --git a/ipc/testshell/TestShellParent.h b/ipc/testshell/TestShellParent.h
+--- a/ipc/testshell/TestShellParent.h
++++ b/ipc/testshell/TestShellParent.h
+@@ -70,17 +70,17 @@ public:
+   DeallocPTestShellCommand(PTestShellCommandParent* aActor);
+ 
+   bool
+   CommandDone(TestShellCommandParent* aActor, const nsString& aResponse);
+ 
+   PContextWrapperParent* AllocPContextWrapper();
+   bool DeallocPContextWrapper(PContextWrapperParent* actor);
+ 
+-  bool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
++  JSBool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
+ };
+ 
+ 
+ class TestShellCommandParent : public PTestShellCommandParent
+ {
+ public:
+   TestShellCommandParent() : mCx(NULL) { }
+ 
+diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent.h
+--- a/js/src/ipc/ContextWrapperParent.h
++++ b/js/src/ipc/ContextWrapperParent.h
+@@ -60,22 +60,22 @@ class ContextWrapperParent
+ {
+ public:
+ 
+     ContextWrapperParent(ContentProcessParent* cpp)
+         : mContentProcess(cpp)
+         , mGlobal(NULL)
+     {}
+ 
+-    bool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
++    JSBool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
+         if (!mGlobal)
+-            return false;
++            return JS_FALSE;
+         mGlobalHolder.Hold(cx);
+         mGlobalHolder = *globalp = mGlobal->GetJSObject(cx);
+-        return true;
++        return JS_TRUE;
+     }
+ 
+     ObjectWrapperParent* GetGlobalObjectWrapper() const {
+         return mGlobal;
+     }
+ 
+     bool RequestRunToCompletion() {
+         return mContentProcess->RequestRunToCompletion();

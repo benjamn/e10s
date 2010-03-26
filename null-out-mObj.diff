@@ -1,0 +1,49 @@
+Bug 554829 - Null out mozilla::jsipc::ObjectWrapperParent::mObj in ActorDestroy and CPOW_Finalize. r=smaug
+
+diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
+--- a/js/src/ipc/ObjectWrapperParent.cpp
++++ b/js/src/ipc/ObjectWrapperParent.cpp
+@@ -198,18 +198,20 @@ const JSExtendedClass ObjectWrapperParen
+     nsnull, // iterator
+     nsnull, // wrappedObject
+     JSCLASS_NO_RESERVED_MEMBERS
+ };
+ 
+ void
+ ObjectWrapperParent::ActorDestroy(ActorDestroyReason)
+ {
+-    if (mObj)
++    if (mObj) {
+         mObj->setPrivate(NULL);
++        mObj = NULL;
++    }
+ }
+ 
+ ContextWrapperParent*
+ ObjectWrapperParent::Manager()
+ {
+     PContextWrapperParent* pcwp = PObjectWrapperParent::Manager();
+     return static_cast<ContextWrapperParent*>(pcwp);
+ }
+@@ -630,18 +632,20 @@ ObjectWrapperParent::CPOW_Convert(JSCont
+ }
+ 
+ /*static*/ void
+ ObjectWrapperParent::CPOW_Finalize(JSContext* cx, JSObject* obj)
+ {
+     CPOW_LOG(("Calling CPOW_Finalize..."));
+     
+     ObjectWrapperParent* self = Unwrap(cx, obj);
+-    if (self)
++    if (self) {
++        self->mObj = NULL;
+         ObjectWrapperParent::Send__delete__(self);
++    }
+ }
+ 
+ /*static*/ JSBool
+ ObjectWrapperParent::CPOW_Call(JSContext* cx, JSObject* obj, uintN argc,
+                                jsval* argv, jsval* rval)
+ {
+     CPOW_LOG(("Calling CPOW_Call..."));
+ 

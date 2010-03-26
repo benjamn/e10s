@@ -1,0 +1,767 @@
+diff --git a/content/base/src/nsFrameMessageManager.cpp b/content/base/src/nsFrameMessageManager.cpp
+--- a/content/base/src/nsFrameMessageManager.cpp
++++ b/content/base/src/nsFrameMessageManager.cpp
+@@ -279,16 +279,17 @@ nsFrameMessageManager::GetDocShell(nsIDo
+   *aDocShell = nsnull;
+   return NS_OK;
+ }
+ 
+ nsresult
+ nsFrameMessageManager::ReceiveMessage(nsISupports* aTarget,
+                                       const nsAString& aMessage,
+                                       PRBool aSync, const nsAString& aJSON,
++                                      JSObject* aObjectsArray,
+                                       nsTArray<nsString>* aJSONRetVal)
+ {
+   if (mListeners.Length()) {
+     nsCOMPtr<nsIAtom> name = do_GetAtom(aMessage);
+     nsRefPtr<nsFrameMessageManager> kungfuDeathGrip(this);
+ 
+     for (PRUint32 i = 0; i < mListeners.Length(); ++i) {
+       if (mListeners[i].mMessage == name) {
+@@ -342,16 +343,18 @@ nsFrameMessageManager::ReceiveMessage(ns
+                               aMessage.Length());
+         NS_ENSURE_TRUE(jsMessage, NS_ERROR_OUT_OF_MEMORY);
+         JS_DefineProperty(mContext, param, "target", targetv, NULL, NULL, JSPROP_ENUMERATE);
+         JS_DefineProperty(mContext, param, "name",
+                           STRING_TO_JSVAL(jsMessage), NULL, NULL, JSPROP_ENUMERATE);
+         JS_DefineProperty(mContext, param, "sync",
+                           BOOLEAN_TO_JSVAL(aSync), NULL, NULL, JSPROP_ENUMERATE);
+         JS_DefineProperty(mContext, param, "json", json, NULL, NULL, JSPROP_ENUMERATE);
++        JS_DefineProperty(mContext, param, "objects", OBJECT_TO_JSVAL(aObjectsArray),
++                          NULL, NULL, JSPROP_ENUMERATE);
+ 
+         jsval thisValue = JSVAL_VOID;
+         nsAutoGCRoot resultGCRoot3(&thisValue, &rv);
+         NS_ENSURE_SUCCESS(rv, rv);
+ 
+         jsval funval = JSVAL_VOID;
+         if (JS_ObjectIsFunction(mContext, object)) {
+           // If the listener is a JS function:
+@@ -392,17 +395,17 @@ nsFrameMessageManager::ReceiveMessage(ns
+             aJSONRetVal->AppendElement(json);
+           }
+         }
+         js_FreeStack(mContext, mark);
+       }
+     }
+   }
+   return mParentManager ? mParentManager->ReceiveMessage(aTarget, aMessage,
+-                                                         aSync, aJSON,
++                                                         aSync, aJSON, aObjectsArray,
+                                                          aJSONRetVal) : NS_OK;
+ }
+ 
+ void
+ nsFrameMessageManager::AddChildManager(nsFrameMessageManager* aManager)
+ {
+   mChildManagers.AppendObject(aManager);
+   for (PRUint32 i = 0; i < mPendingScripts.Length(); ++i) {
+diff --git a/content/base/src/nsFrameMessageManager.h b/content/base/src/nsFrameMessageManager.h
+--- a/content/base/src/nsFrameMessageManager.h
++++ b/content/base/src/nsFrameMessageManager.h
+@@ -43,16 +43,17 @@
+ #include "nsCOMArray.h"
+ #include "nsTArray.h"
+ #include "nsIAtom.h"
+ #include "nsCycleCollectionParticipant.h"
+ #include "nsTArray.h"
+ 
+ class nsAXPCNativeCallContext;
+ struct JSContext;
++struct JSObject;
+ 
+ struct nsMessageListenerInfo
+ {
+   nsCOMPtr<nsIFrameMessageListener> mListener;
+   nsCOMPtr<nsIAtom> mMessage;
+ };
+ 
+ typedef bool (*nsLoadScriptCallback)(void* aCallbackData, const nsAString& aURL);
+@@ -98,28 +99,30 @@ public:
+   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsFrameMessageManager,
+                                            nsIContentFrameMessageManager)
+   NS_DECL_NSIFRAMEMESSAGEMANAGER
+   NS_DECL_NSICONTENTFRAMEMESSAGEMANAGER
+   NS_DECL_NSICHROMEFRAMEMESSAGEMANAGER
+ 
+   nsresult ReceiveMessage(nsISupports* aTarget, const nsAString& aMessage,
+                           PRBool aSync, const nsAString& aJSON,
++                          JSObject* aObjectsArray,
+                           nsTArray<nsString>* aJSONRetVal);
+   void AddChildManager(nsFrameMessageManager* aManager);
+   void RemoveChildManager(nsFrameMessageManager* aManager)
+   {
+     mChildManagers.RemoveObject(aManager);
+   }
+ 
+   void Disconnect(PRBool aRemoveFromParent = PR_TRUE);
+   void SetCallbackData(void* aData);
+   nsresult GetParamsForMessage(nsAString& aMessageName, nsAString& aJSON);
+   nsresult SendAsyncMessageInternal(const nsAString& aMessage,
+                                     const nsAString& aJSON);
++  JSContext* GetJSContext() { return mContext; }
+ protected:
+   nsTArray<nsMessageListenerInfo> mListeners;
+   nsCOMArray<nsIContentFrameMessageManager> mChildManagers;
+   PRBool mChrome;
+   nsFrameMessageManager* mParentManager;
+   nsSyncMessageCallback mSyncCallback;
+   nsAsyncMessageCallback mAsyncCallback;
+   nsLoadScriptCallback mLoadScriptCallback;
+diff --git a/dom/ipc/ContentProcessParent.cpp b/dom/ipc/ContentProcessParent.cpp
+--- a/dom/ipc/ContentProcessParent.cpp
++++ b/dom/ipc/ContentProcessParent.cpp
+@@ -121,16 +121,17 @@ bool
+ ContentProcessParent::DestroyTestShell(TestShellParent* aTestShell)
+ {
+     return PTestShellParent::Send__delete__(aTestShell);
+ }
+ 
+ ContentProcessParent::ContentProcessParent()
+     : mMonitor("ContentProcessParent::mMonitor")
+     , mRunToCompletionDepth(0)
++    , mShouldCallUnblockChild(false)
+ {
+     NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+     mSubprocess = new GeckoChildProcessHost(GeckoProcessType_Content);
+     mSubprocess->AsyncLaunch();
+     Open(mSubprocess->GetChannel(), mSubprocess->GetChildProcessHandle());
+ 
+     nsCOMPtr<nsIChromeRegistry> registrySvc = nsChromeRegistry::GetService();
+     nsChromeRegistryChrome* chromeRegistry =
+@@ -212,27 +213,39 @@ ContentProcessParent::AllocPNecko()
+ 
+ bool 
+ ContentProcessParent::DeallocPNecko(PNeckoParent* necko)
+ {
+     delete necko;
+     return true;
+ }
+ 
++void
++ContentProcessParent::ReportChildAlreadyBlocked()
++{
++    if (!mRunToCompletionDepth) {
++#ifdef DEBUG
++        printf("Running to completion...\n");
++#endif
++        mRunToCompletionDepth = 1;
++        mShouldCallUnblockChild = false;
++    }
++}
++    
+ bool
+ ContentProcessParent::RequestRunToCompletion()
+ {
+     if (!mRunToCompletionDepth &&
+         BlockChild()) {
+ #ifdef DEBUG
+         printf("Running to completion...\n");
+ #endif
+         mRunToCompletionDepth = 1;
++        mShouldCallUnblockChild = true;
+     }
+-
+     return !!mRunToCompletionDepth;
+ }
+ 
+ /* void onDispatchedEvent (in nsIThreadInternal thread); */
+ NS_IMETHODIMP
+ ContentProcessParent::OnDispatchedEvent(nsIThreadInternal *thread)
+ {
+     if (mOldObserver)
+@@ -261,17 +274,20 @@ NS_IMETHODIMP
+ ContentProcessParent::AfterProcessNextEvent(nsIThreadInternal *thread,
+                                             PRUint32 recursionDepth)
+ {
+     if (mRunToCompletionDepth &&
+         !--mRunToCompletionDepth) {
+ #ifdef DEBUG
+             printf("... ran to completion.\n");
+ #endif
+-            UnblockChild();
++            if (mShouldCallUnblockChild) {
++                mShouldCallUnblockChild = false;
++                UnblockChild();
++            }
+     }
+ 
+     if (mOldObserver)
+         return mOldObserver->AfterProcessNextEvent(thread, recursionDepth);
+ 
+     return NS_OK;
+ }
+     
+diff --git a/dom/ipc/ContentProcessParent.h b/dom/ipc/ContentProcessParent.h
+--- a/dom/ipc/ContentProcessParent.h
++++ b/dom/ipc/ContentProcessParent.h
+@@ -78,16 +78,17 @@ public:
+     NS_DECL_NSIOBSERVER
+     NS_DECL_NSITHREADOBSERVER
+ 
+     TabParent* CreateTab();
+ 
+     TestShellParent* CreateTestShell();
+     bool DestroyTestShell(TestShellParent* aTestShell);
+ 
++    void ReportChildAlreadyBlocked();
+     bool RequestRunToCompletion();
+ 
+ protected:
+     virtual void ActorDestroy(ActorDestroyReason why);
+ 
+ private:
+     static ContentProcessParent* gSingleton;
+ 
+@@ -108,16 +109,17 @@ private:
+     virtual PNeckoParent* AllocPNecko();
+     virtual bool DeallocPNecko(PNeckoParent* necko);
+ 
+     mozilla::Monitor mMonitor;
+ 
+     GeckoChildProcessHost* mSubprocess;
+ 
+     int mRunToCompletionDepth;
++    bool mShouldCallUnblockChild;
+     nsCOMPtr<nsIThreadObserver> mOldObserver;
+ 
+ };
+ 
+ } // namespace dom
+ } // namespace mozilla
+ 
+ #endif
+diff --git a/dom/ipc/PIFrameEmbedding.ipdl b/dom/ipc/PIFrameEmbedding.ipdl
+--- a/dom/ipc/PIFrameEmbedding.ipdl
++++ b/dom/ipc/PIFrameEmbedding.ipdl
+@@ -36,16 +36,17 @@
+  * the terms of any one of the MPL, the GPL or the LGPL.
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ include protocol "PContentProcess.ipdl";
+ include protocol "PDocumentRenderer.ipdl";
+ include protocol "PDocumentRendererShmem.ipdl";
+ include protocol "PContextWrapper.ipdl";
++include protocol "PObjectWrapper.ipdl";
+ 
+ include "mozilla/TabTypes.h";
+ include "TabMessageUtils.h";
+ include "gfxMatrix.h";
+ 
+ using MagicWindowHandle;
+ using RemoteDOMEvent;
+ using gfxMatrix;
+@@ -89,17 +90,19 @@ parent:
+     sync refreshAttempted(nsCString uri, PRInt32 millis,
+                           bool sameURI) returns (bool retval);
+ 
+ 
+     rpc createWindow() returns (PIFrameEmbedding window);
+ 
+     PContextWrapper();
+ 
+-    sync sendSyncMessageToParent(nsString aMessage, nsString aJSON) returns (nsString[] retval);
++    rpc sendSyncMessageToParent(nsString aMessage, nsString aJSON, PObjectWrapper[] aObjects)
++      returns (nsString[] retval);
++
+     sendAsyncMessageToParent(nsString aMessage, nsString aJSON);
+ child:
+     createWidget(MagicWindowHandle parentWidget);
+ 
+     loadURL(nsCString uri);
+ 
+     move(PRUint32 x,
+          PRUint32 y,
+diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
+--- a/dom/ipc/TabChild.cpp
++++ b/dom/ipc/TabChild.cpp
+@@ -97,16 +97,17 @@ ContentListener::HandleEvent(nsIDOMEvent
+   RemoteDOMEvent remoteEvent;
+   remoteEvent.mEvent = do_QueryInterface(aEvent);
+   NS_ENSURE_STATE(remoteEvent.mEvent);
+   mTabChild->SendsendEvent(remoteEvent);
+   return NS_OK;
+ }
+ 
+ TabChild::TabChild()
++: mCx(nsnull), mContextWrapper(nsnull), mTabChildGlobal(nsnull)
+ {
+     printf("creating %d!\n", NS_IsMainThread());
+ }
+ 
+ nsresult
+ TabChild::Init()
+ {
+ #ifdef MOZ_WIDGET_GTK2
+@@ -752,20 +753,19 @@ TabChild::RecvloadRemoteScript(const nsS
+   return true;
+ }
+ 
+ bool
+ TabChild::RecvsendAsyncMessageToChild(const nsString& aMessage,
+                                       const nsString& aJSON)
+ {
+   if (mTabChildGlobal) {
+-    nsTArray<nsString> dummy;
+     static_cast<nsFrameMessageManager*>(mTabChildGlobal->mMessageManager.get())->
+       ReceiveMessage(static_cast<nsPIDOMEventTarget*>(mTabChildGlobal),
+-                     aMessage, PR_FALSE, aJSON, nsnull);
++                     aMessage, PR_FALSE, aJSON, nsnull, nsnull);
+   }
+   return true;
+ }
+ 
+ 
+ bool
+ TabChild::InitTabChildGlobal()
+ {
+@@ -841,26 +841,67 @@ TabChild::InitTabChildGlobal()
+   root->SetParentTarget(scope);
+   
+   JSObject* global = nsnull;
+   rv = mRootGlobal->GetJSObject(&global);
+   NS_ENSURE_SUCCESS(rv, false);
+ 
+   JS_SetGlobalObject(cx, global);
+ 
++  mContextWrapper = new ContextWrapperChild(mCx);
++  SendPContextWrapperConstructor(mContextWrapper);
++  
+   return true;
+ }
+ 
++nsresult
++TabChild::GetObjectsForMessage(nsTArray<mozilla::jsipc::PObjectWrapperChild*>& aObjects)
++{
++  nsAXPCNativeCallContext* ncc = nsnull;
++  nsresult rv = nsContentUtils::XPConnect()->GetCurrentNativeCallContext(&ncc);
++  NS_ENSURE_SUCCESS(rv, rv);
++  NS_ENSURE_STATE(ncc);
++
++  JSContext* ctx = nsnull;
++  rv = ncc->GetJSContext(&ctx);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  PRUint32 argc;
++  jsval* argv = nsnull;
++  ncc->GetArgc(&argc);
++  ncc->GetArgvPtr(&argv);
++
++  JSAutoRequest ar(ctx);
++
++  JSObject* obj = nsnull;
++  nsAutoGCRoot resultGCRoot(&obj, &rv);
++  NS_ENSURE_SUCCESS(rv, rv);
++  // First parameter is the message name, second is the JSON.
++  for (PRUint32 i = 2; i < argc; ++i) {
++    if (JSVAL_IS_OBJECT(argv[i])) {
++      obj = JSVAL_TO_OBJECT(argv[i]);
++    } else if (!JS_ValueToObject(ctx, argv[i], &obj)) {
++      obj = nsnull;
++    }
++    // GetOrCreateWrapper is null safe!
++    aObjects.AppendElement(mContextWrapper->GetOrCreateWrapper(obj));
++  }
++  return NS_OK;
++}
++
+ bool SendSyncMessageToParent(void* aCallbackData,
+                              const nsAString& aMessage,
+                              const nsAString& aJSON,
+                              nsTArray<nsString>* aJSONRetVal)
+ {
++  nsTArray<mozilla::jsipc::PObjectWrapperChild*> objects;
++  static_cast<TabChild*>(aCallbackData)->GetObjectsForMessage(objects);
+   return static_cast<TabChild*>(aCallbackData)->
+-    SendsendSyncMessageToParent(nsString(aMessage), nsString(aJSON), aJSONRetVal);
++    CallsendSyncMessageToParent(nsString(aMessage), nsString(aJSON), objects,
++                                aJSONRetVal);
+ }
+ 
+ bool SendAsyncMessageToParent(void* aCallbackData,
+                               const nsAString& aMessage,
+                               const nsAString& aJSON)
+ {
+   return static_cast<TabChild*>(aCallbackData)->
+     SendsendAsyncMessageToParent(nsString(aMessage), nsString(aJSON));
+diff --git a/dom/ipc/TabChild.h b/dom/ipc/TabChild.h
+--- a/dom/ipc/TabChild.h
++++ b/dom/ipc/TabChild.h
+@@ -70,16 +70,17 @@
+ #include "nsWeakReference.h"
+ 
+ class gfxMatrix;
+ 
+ namespace mozilla {
+ 
+ namespace jsipc {
+ class PContextWrapperChild;
++class ContextWrapperChild;
+ }
+ 
+ namespace dom {
+ 
+ class TabChild;
+ 
+ class TabChildGlobal : public nsDOMEventTargetHelper,
+                        public nsIContentFrameMessageManager,
+@@ -239,25 +240,28 @@ public:
+ 
+     JSContext* GetJSContext() { return mCx; }
+ 
+     nsIPrincipal* GetPrincipal() { return mPrincipal; }
+ 
+     virtual PContextWrapperChild* AllocPContextWrapper();
+     virtual bool DeallocPContextWrapper(PContextWrapperChild* actor);
+ 
++    nsresult GetObjectsForMessage(nsTArray<PObjectWrapperChild*>& aObjects);
+ private:
+     bool InitTabChildGlobal();
+ 
+     nsCOMPtr<nsIWebNavigation> mWebNav;
+ 
+     nsCOMPtr<nsIXPConnectJSObjectHolder> mRootGlobal;
+ 
+     JSContext* mCx;
+ 
++    mozilla::jsipc::ContextWrapperChild* mContextWrapper;
++
+     nsCOMPtr<nsIChannel> mChannel;
+ 
+     TabChildGlobal* mTabChildGlobal;
+ 
+     nsCOMPtr<nsIPrincipal> mPrincipal;
+ 
+     DISALLOW_EVIL_CONSTRUCTORS(TabChild);
+ };
+diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
+--- a/dom/ipc/TabParent.cpp
++++ b/dom/ipc/TabParent.cpp
+@@ -50,16 +50,18 @@
+ #include "nsIDOMElement.h"
+ #include "nsEventDispatcher.h"
+ #include "nsIDOMEventTarget.h"
+ #include "nsIDOMEvent.h"
+ #include "nsIPrivateDOMEvent.h"
+ #include "nsIWebProgressListener2.h"
+ #include "nsFrameLoader.h"
+ #include "nsNetUtil.h"
++#include "jsarray.h"
++#include "nsContentUtils.h"
+ 
+ using mozilla::ipc::DocumentRendererParent;
+ using mozilla::ipc::DocumentRendererShmemParent;
+ using mozilla::dom::ContentProcessParent;
+ using mozilla::jsipc::PContextWrapperParent;
+ using mozilla::jsipc::ContextWrapperParent;
+ 
+ // The flags passed by the webProgress notifications are 16 bits shifted
+@@ -438,19 +440,30 @@ TabParent::DeallocPContextWrapper(PConte
+ bool
+ TabParent::GetGlobalJSObject(JSContext* cx, JSObject** globalp)
+ {
+     // TODO Unify this code with TestShellParent::GetGlobalJSObject.
+     nsTArray<PContextWrapperParent*> cwps(1);
+     ManagedPContextWrapperParent(cwps);
+     if (cwps.Length() < 1)
+         return false;
+-    NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
++
++    // This is temporary until we decide whether to return
++    // TabChildGlobal or top level page's global object.
++    // Currently this returns the page global object.
++    // Note, TabChildGlobal's context doesn't report its global object here!
++    NS_ASSERTION(cwps.Length() <= 2, "More than two PContextWrappers?");
+     ContextWrapperParent* cwp = static_cast<ContextWrapperParent*>(cwps[0]);
+-    return (cwp->GetGlobalJSObject(cx, globalp));
++    if (cwp->GetGlobalObjectWrapper()) {
++      return cwp->GetGlobalJSObject(cx, globalp);
++    } else if (cwps.Length() == 2) {
++      cwp = static_cast<ContextWrapperParent*>(cwps[1]);
++      return cwp->GetGlobalJSObject(cx, globalp);
++    }
++    return false;
+ }
+ 
+ void
+ TabParent::SendMouseEvent(const nsAString& aType, float aX, float aY,
+                           PRInt32 aButton, PRInt32 aClickCount,
+                           PRInt32 aModifiers, PRBool aIgnoreRootScrollFrame)
+ {
+   SendsendMouseEvent(nsString(aType), aX, aY, aButton, aClickCount,
+@@ -464,50 +477,72 @@ TabParent::SendKeyEvent(const nsAString&
+                         PRInt32 aModifiers,
+                         PRBool aPreventDefault)
+ {
+     SendsendKeyEvent(nsString(aType), aKeyCode, aCharCode, aModifiers,
+                      aPreventDefault);
+ }
+ 
+ bool
+-TabParent::RecvsendSyncMessageToParent(const nsString& aMessage,
+-                                       const nsString& aJSON,
+-                                       nsTArray<nsString>* aJSONRetVal)
++TabParent::AnswersendSyncMessageToParent(const nsString& aMessage,
++                                         const nsString& aJSON,
++                                         const nsTArray<PObjectWrapperParent*>& aObjects,
++                                         nsTArray<nsString>* aJSONRetVal)
++{
++  static_cast<ContentProcessParent*>(Manager())->ReportChildAlreadyBlocked();
++  return ReceiveMessage(aMessage, PR_TRUE, aJSON, &aObjects, aJSONRetVal);
++}
++
++bool
++TabParent::RecvsendAsyncMessageToParent(const nsString& aMessage,
++                                        const nsString& aJSON)
++{
++  return ReceiveMessage(aMessage, PR_FALSE, aJSON, nsnull);
++}
++
++bool
++TabParent::ReceiveMessage(const nsString& aMessage,
++                          PRBool aSync,
++                          const nsString& aJSON,
++                          const nsTArray<PObjectWrapperParent*>* aObjects,
++                          nsTArray<nsString>* aJSONRetVal)
+ {
+   nsCOMPtr<nsIFrameLoaderOwner> frameLoaderOwner =
+     do_QueryInterface(mFrameElement);
+   if (frameLoaderOwner) {
+     nsRefPtr<nsFrameLoader> frameLoader = frameLoaderOwner->GetFrameLoader();
+     if (frameLoader && frameLoader->GetFrameMessageManager()) {
+-      frameLoader->GetFrameMessageManager()->ReceiveMessage(mFrameElement,
+-                                                            aMessage,
+-                                                            PR_TRUE,
+-                                                            aJSON,
+-                                                            aJSONRetVal);
+-    }
+-  }
+-  return true;
+-}
++      nsFrameMessageManager* manager = frameLoader->GetFrameMessageManager();
++      JSContext* ctx = manager->GetJSContext();
++      JSAutoRequest ar(ctx);
++      jsval* dest;
++      PRUint32 len = aObjects ? aObjects->Length() : 0;
++      // Because we want JS messages to have always the same properties,
++      // create array even if len == 0.
++      JSObject* objectsArray =
++        js_NewArrayObjectWithCapacity(ctx, len, &dest);
++      if (!objectsArray) {
++        return false;
++      }
+ 
+-bool
+-TabParent::RecvsendAsyncMessageToParent(const nsString& aMessage,
+-                                        const nsString& aJSON)
+-{
+-  nsCOMPtr<nsIFrameLoaderOwner> frameLoaderOwner =
+-    do_QueryInterface(mFrameElement);
+-  if (frameLoaderOwner) {
+-    nsRefPtr<nsFrameLoader> frameLoader = frameLoaderOwner->GetFrameLoader();
+-    if (frameLoader && frameLoader->GetFrameMessageManager()) {
+-      nsTArray<nsString> dummy;
+-      frameLoader->GetFrameMessageManager()->ReceiveMessage(mFrameElement,
+-                                                            aMessage,
+-                                                            PR_FALSE,
+-                                                            aJSON,
+-                                                            nsnull);
++      nsresult rv = NS_OK;
++      nsAutoGCRoot arrayGCRoot(&objectsArray, &rv);
++      NS_ENSURE_SUCCESS(rv, false);
++      for (PRUint32 i = 0; i < len; ++i) {
++        mozilla::jsipc::ObjectWrapperParent* wrapper =
++          static_cast<mozilla::jsipc::ObjectWrapperParent*>(aObjects->ElementAt(i));
++        dest[i] = OBJECT_TO_JSVAL(wrapper ? wrapper->GetJSObject(ctx) : nsnull);
++      }
++      
++      manager->ReceiveMessage(mFrameElement,
++                              aMessage,
++                              aSync,
++                              aJSON,
++                              objectsArray,
++                              aJSONRetVal);
+     }
+   }
+   return true;
+ }
+ 
+ // nsIWebProgress
+ nsresult
+ TabParent::AddProgressListener(nsIWebProgressListener* aListener,
+diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
+--- a/dom/ipc/TabParent.h
++++ b/dom/ipc/TabParent.h
+@@ -55,16 +55,17 @@ class gfxMatrix;
+ 
+ struct JSContext;
+ struct JSObject;
+ 
+ namespace mozilla {
+ 
+ namespace jsipc {
+ class PContextWrapperParent;
++class PObjectWrapperParent;
+ }
+ 
+ namespace dom {
+ struct TabParentListenerInfo 
+ {
+   TabParentListenerInfo(nsIWeakReference *aListener, unsigned long aNotifyMask)
+     : mWeakListener(aListener), mNotifyMask(aNotifyMask)
+   {
+@@ -109,19 +110,20 @@ public:
+                                         const nsString& message);
+     virtual bool RecvnotifySecurityChange(const PRUint32& aState);
+     virtual bool RecvrefreshAttempted(const nsCString& aURI,
+                                       const PRInt32& aMillis,
+                                       const bool& aSameURI,
+                                       bool* aAllowRefresh);
+ 
+     virtual bool AnswercreateWindow(PIFrameEmbeddingParent** retval);
+-    virtual bool RecvsendSyncMessageToParent(const nsString& aMessage,
+-                                             const nsString& aJSON,
+-                                             nsTArray<nsString>* aJSONRetVal);
++    virtual bool AnswersendSyncMessageToParent(const nsString& aMessage,
++                                               const nsString& aJSON,
++                                               const nsTArray<PObjectWrapperParent*>&,
++                                               nsTArray<nsString>* aJSONRetVal);
+     virtual bool RecvsendAsyncMessageToParent(const nsString& aMessage,
+                                               const nsString& aJSON);
+ 
+     void LoadURL(nsIURI* aURI);
+     void Move(PRUint32 x, PRUint32 y, PRUint32 width, PRUint32 height);
+     void Activate();
+     void SendMouseEvent(const nsAString& aType, float aX, float aY,
+                         PRInt32 aButton, PRInt32 aClickCount,
+@@ -160,16 +162,22 @@ public:
+     bool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
+ 
+     NS_DECL_ISUPPORTS
+     NS_DECL_NSIWEBPROGRESS
+ 
+ protected:
+     TabParentListenerInfo* GetListenerInfo(nsIWebProgressListener *aListener);
+ 
++    bool ReceiveMessage(const nsString& aMessage,
++                        PRBool aSync,
++                        const nsString& aJSON,
++                        const nsTArray<PObjectWrapperParent*>* aObjects,
++                        nsTArray<nsString>* aJSONRetVal = nsnull);
++
+     nsIDOMElement* mFrameElement;
+     nsCOMPtr<nsIBrowserDOMWindow> mBrowserDOMWindow;
+ 
+     nsTArray<TabParentListenerInfo> mListenerInfoList;
+ };
+ 
+ } // namespace dom
+ } // namespace mozilla
+diff --git a/dom/ipc/remote-test.js b/dom/ipc/remote-test.js
+--- a/dom/ipc/remote-test.js
++++ b/dom/ipc/remote-test.js
+@@ -10,17 +10,17 @@ var dshell = content.QueryInterface(Ci.n
+                     .QueryInterface(Ci.nsIDocShell);
+ 
+ 
+ addEventListener("click",
+   function(e) {
+     dump(e.target + "\n");
+     if (e.target instanceof Components.interfaces.nsIDOMHTMLAnchorElement &&
+         dshell == docShell) {
+-      var retval = sendSyncMessage("linkclick", { href : e.target.href });
++      var retval = sendSyncMessage("linkclick", { href : e.target.href }, e, 123, "a string");
+       dump(uneval(retval[0]) + "\n");
+       // Test here also that both retvals are the same
+       sendAsyncMessage("linkclick-reply-object", uneval(retval[0]) == uneval(retval[1]) ? retval[0] : "");
+     }
+   },
+   true);
+ 
+ addMessageListener("chrome-message",
+diff --git a/dom/ipc/test.xul b/dom/ipc/test.xul
+--- a/dom/ipc/test.xul
++++ b/dom/ipc/test.xul
+@@ -93,18 +93,29 @@
+ 
+     function initRemoteFrameScript() {
+       // 1. Test that loading a script works
+       messageManager.loadFrameScript("chrome://global/content/remote-test-ipc.js", true);
+ 
+       // 2. Test that adding message listener works, and that receiving a sync message works.
+       messageManager.addMessageListener("linkclick",
+         function(m) {
+-          document.getElementById("messageLog").value = m.name + ": " + m.json.href;
+-          return { message: "linkclick-received" };
++          // This checks that json and CPOW sending works in sync messages. 
++          if (m.objects.length == 3 &amp;&amp;
++              m.objects[0].target.href == m.json.href &amp;&amp;
++              m.objects[1] == 123 &amp;&amp;
++              m.objects[2] == "a string") {
++            // Test that crossProcessObjectWrapper can be used in sync messages.
++            if ((document.getElementById('page')
++                         .QueryInterface(Components.interfaces.nsIFrameLoaderOwner)
++                         .crossProcessObjectWrapper + "").indexOf("Window")  >= 0) {
++              document.getElementById("messageLog").value = m.name + ": " + m.json.href;
++              return { message: "linkclick-received" };
++            }
++          }
+         });
+ 
+       // 3. Test that returning multiple json results works.
+       messageManager.addMessageListener("linkclick",
+         function(m) {
+           return { message: "linkclick-received" };
+         });
+ 
+@@ -119,19 +130,24 @@
+             messageManager.sendAsyncMessage("chrome-message", { ok : s } );
+           }
+         }
+         );
+ 
+       // 5. Final test to check that everything went ok.
+       messageManager.addMessageListener("chrome-message-reply",
+         function(m) {
+-          // Check that 'this' and .target values are handled correctly.
++          // Check that 'this' and .target values are handled correctly
++          // Check also that crossProcessObjectWrapper can be used in
++          // asynchronous message handlers.
+           if (m.target == document.getElementById("page") &amp;&amp;
+-              this == messageManager) {
++              this == messageManager &amp;&amp;
++              (document.getElementById('page')
++                         .QueryInterface(Components.interfaces.nsIFrameLoaderOwner)
++                         .crossProcessObjectWrapper + "").indexOf("Window")  >= 0) {
+             // Check that the message properties are enumerable.
+             var hasName = false;
+             var hasSync = false;
+             var hasJSON = false;
+             for (i in m) {
+               if (i == "name") {
+                 hasName = true;
+               } else if (i == "sync") {
+diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
+--- a/js/src/ipc/ObjectWrapperChild.cpp
++++ b/js/src/ipc/ObjectWrapperChild.cpp
+@@ -68,17 +68,17 @@ namespace {
+         AutoContextPusher(JSContext* cx
+                           JS_GUARD_OBJECT_NOTIFIER_PARAM)
+             : mRequest(cx)
+             , mContext(cx)
+             , mSavedOptions(JS_SetOptions(cx, (JS_GetOptions(cx) |
+                                                JSOPTION_DONT_REPORT_UNCAUGHT)))
+         {
+             JS_GUARD_OBJECT_NOTIFIER_INIT;
+-            mStack.Push(cx);
++            mStack.Push(cx, PR_FALSE);
+         }
+ 
+         ~AutoContextPusher() {
+             mStack.Pop();
+             JS_SetOptions(mContext, mSavedOptions);
+         }
+ 
+     };
