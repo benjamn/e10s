@@ -1,9 +1,9 @@
-Bug 554942 - [E10s] Sort out what object TabParent::GetGlobalJSObject should return and how.
+Bug 554942 - [E10s] Sort out what object TabParent::GetGlobalJSObject should return and how. r=smaug
 
 diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
 --- a/dom/ipc/TabChild.cpp
 +++ b/dom/ipc/TabChild.cpp
-@@ -471,18 +471,16 @@ TabChild::RecvloadURL(const nsCString& u
+@@ -478,18 +478,16 @@ TabChild::RecvloadURL(const nsCString& u
  
      nsresult rv = mWebNav->LoadURI(NS_ConvertUTF8toUTF16(uri).get(),
                                     nsIWebNavigation::LOAD_FLAGS_NONE,
@@ -22,7 +22,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
                       const PRUint32& y,
                       const PRUint32& width,
                       const PRUint32& height)
-@@ -531,38 +529,20 @@ TabChild::RecvsendKeyEvent(const nsStrin
+@@ -538,38 +536,20 @@ TabChild::RecvsendKeyEvent(const nsStrin
    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
    NS_ENSURE_TRUE(utils, true);
    PRBool ignored = PR_FALSE;
@@ -62,7 +62,7 @@ diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
      delete actor;
      return true;
  }
-@@ -843,17 +823,22 @@ TabChild::InitTabChildGlobal()
+@@ -850,17 +830,22 @@ TabChild::InitTabChildGlobal()
    JSObject* global = nsnull;
    rv = mRootGlobal->GetJSObject(&global);
    NS_ENSURE_SUCCESS(rv, false);
@@ -169,9 +169,9 @@ diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
      NS_DECL_NSIWEBPROGRESS
  
  protected:
-     TabParentListenerInfo* GetListenerInfo(nsIWebProgressListener *aListener);
- 
      bool ReceiveMessage(const nsString& aMessage,
+                         PRBool aSync,
+                         const nsString& aJSON,
 diff --git a/ipc/testshell/TestShellParent.cpp b/ipc/testshell/TestShellParent.cpp
 --- a/ipc/testshell/TestShellParent.cpp
 +++ b/ipc/testshell/TestShellParent.cpp
