@@ -19,7 +19,7 @@ diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
  namespace mozilla {
  namespace jsipc {
  
-@@ -76,33 +77,50 @@ public:
+@@ -76,33 +77,47 @@ public:
              if (wrapper)
                  mResidentObjectTable.Put(obj, wrapper);
              else
@@ -47,9 +47,7 @@ diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
  
 -private:
 +    PHandleChild* AllocPHandle(PHandleChild* parent) {
-+        if (!parent)
-+            return HandleChild::Create();
-+        return static_cast<HandleChild*>(parent)->BearChild();
++        return HandleChild::Create(parent);
 +    }
 +
 +    bool RecvPHandleConstructor(PHandleChild* actor,
@@ -60,8 +58,7 @@ diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
 +
 +    bool DeallocPHandle(PHandleChild* actor)
 +    {
-+        if (!static_cast<HandleChild*>(actor)->HasParent())
-+            delete actor;
++        HandleChild::Destroy(actor);
 +        return true;
 +    }
  
@@ -93,7 +90,7 @@ diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent
  #include "nsAutoJSValHolder.h"
  
  namespace mozilla {
-@@ -107,13 +108,32 @@ private:
+@@ -107,13 +108,29 @@ private:
              mGlobal == static_cast<ObjectWrapperParent*>(actor)) {
              mGlobalHolder.Release();
              mGlobal = NULL;
@@ -103,9 +100,7 @@ diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent
      }
  
 +    PHandleParent* AllocPHandle(PHandleParent* parent) {
-+        if (!parent)
-+            return HandleParent::Create();
-+        return static_cast<HandleParent*>(parent)->BearChild();
++        return HandleParent::Create(parent);
 +    }
 +
 +    bool RecvPHandleConstructor(PHandleParent* actor,
@@ -116,8 +111,7 @@ diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent
 +
 +    bool DeallocPHandle(PHandleParent* actor)
 +    {
-+        if (!static_cast<HandleParent*>(actor)->HasParent())
-+            delete actor;
++        HandleParent::Destroy(actor);
 +        return true;
 +    }
 +
@@ -130,7 +124,7 @@ diff --git a/js/src/ipc/Handle.h b/js/src/ipc/Handle.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/Handle.h
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,132 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
 + * vim: set ts=8 sw=4 et tw=80:
 + *
@@ -190,20 +184,19 @@ new file mode 100644
 +    Handle(Handle* parent)
 +        : mParent(parent)
 +        , mObj(NULL)
-+    {}
++    {
++        if (parent)
++            parent->mChildren.AppendElement(this);
++    }
 +
 +public:
 +
-+    bool HasParent() {
-+        return !!mParent;
++    static Handle* Create(BaseType* parent) {
++        return new Handle(static_cast<Handle*>(parent));
 +    }
 +
-+    static Handle* Create() {
-+        return new Handle(NULL);
-+    }
-+
-+    Handle* BearChild() {
-+        return *mChildren.AppendElement(new Handle(this));
++    static void Destroy(BaseType* handle) {
++        delete handle;
 +    }
 +
 +    JSObject* GetJSObject(JSContext* cx) const {
@@ -316,7 +309,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  ObjectWrapperParent::GetJSObject(JSContext* cx) const
  {
 +    if (!cx) // Never actually do this; just force template expansion.
-+        HandleParent::Create()->GetJSObject(cx); // TODO Temporary!
++        HandleParent::Create(0)->GetJSObject(cx); // TODO Temporary!
 +
      JSClass* clasp = const_cast<JSClass*>(&ObjectWrapperParent::sCPOW_JSClass.base);
      if (!mObj && (mObj = JS_NewObject(cx, clasp, NULL, NULL))) {
