@@ -1,0 +1,416 @@
+diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
+--- a/js/src/ipc/ContextWrapperChild.h
++++ b/js/src/ipc/ContextWrapperChild.h
+@@ -38,16 +38,17 @@
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ #ifndef mozilla_jsipc_ContextWrapperChild_h__
+ #define mozilla_jsipc_ContextWrapperChild_h__
+ 
+ #include "mozilla/jsipc/PContextWrapperChild.h"
+ #include "mozilla/jsipc/ObjectWrapperChild.h"
++#include "mozilla/jsipc/Handle.h"
+ 
+ #include "jsapi.h"
+ #include "nsClassHashtable.h"
+ #include "nsHashKeys.h"
+ 
+ namespace mozilla {
+ namespace jsipc {
+ 
+@@ -76,33 +77,47 @@ public:
+             if (wrapper)
+                 mResidentObjectTable.Put(obj, wrapper);
+             else
+                 return NULL;
+         }
+         return wrapper;
+     }
+ 
+-protected:
++private:
+ 
+     PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
+         return new ObjectWrapperChild(mContext, obj);
+     }
+     
+     PObjectWrapperChild* AllocPObjectWrapper(const bool&) {
+         return AllocPObjectWrapper(JS_GetGlobalObject(mContext));
+     }
+ 
+     bool DeallocPObjectWrapper(PObjectWrapperChild* actor) {
+         ObjectWrapperChild* owc = static_cast<ObjectWrapperChild*>(actor);
+         mResidentObjectTable.Remove(owc->GetJSObject());
+         return true;
+     }
+ 
+-private:
++    PHandleChild* AllocPHandle(PHandleChild* parent) {
++        return new HandleChild(static_cast<HandleChild*>(parent));
++    }
++
++    bool RecvPHandleConstructor(PHandleChild* actor,
++                                PHandleChild* parent)
++    {
++        return true;
++    }
++
++    bool DeallocPHandle(PHandleChild* actor)
++    {
++        delete actor;
++        return true;
++    }
+ 
+     JSContext* const mContext;
+ 
+     nsClassHashtable<nsPtrHashKey<JSObject>,
+                      PObjectWrapperChild> mResidentObjectTable;
+ 
+ };
+ 
+diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent.h
+--- a/js/src/ipc/ContextWrapperParent.h
++++ b/js/src/ipc/ContextWrapperParent.h
+@@ -38,16 +38,17 @@
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ #ifndef mozilla_jsipc_ContextWrapperParent_h__
+ #define mozilla_jsipc_ContextWrapperParent_h__
+ 
+ #include "mozilla/jsipc/PContextWrapperParent.h"
+ #include "mozilla/jsipc/ObjectWrapperParent.h"
++#include "mozilla/jsipc/Handle.h"
+ #include "mozilla/jsipc/CPOWTypes.h"
+ 
+ #include "mozilla/dom/ContentProcessParent.h"
+ 
+ #include "jsapi.h"
+ #include "nsAutoJSValHolder.h"
+ 
+ namespace mozilla {
+@@ -107,13 +108,29 @@ private:
+             mGlobal == static_cast<ObjectWrapperParent*>(actor)) {
+             mGlobalHolder.Release();
+             mGlobal = NULL;
+         }
+         delete actor;
+         return true;
+     }
+ 
++    PHandleParent* AllocPHandle(PHandleParent* parent) {
++        return new HandleParent(static_cast<HandleParent*>(parent));
++    }
++
++    bool RecvPHandleConstructor(PHandleParent* actor,
++                                PHandleParent* parent)
++    {
++        return true;
++    }
++
++    bool DeallocPHandle(PHandleParent* actor)
++    {
++        delete actor;
++        return true;
++    }
++
+ };
+ 
+ }}
+ 
+ #endif
+diff --git a/js/src/ipc/Handle.h b/js/src/ipc/Handle.h
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/Handle.h
+@@ -0,0 +1,125 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#ifndef mozilla_jsipc_HandleParent_h__
++#define mozilla_jsipc_HandleParent_h__
++
++#include "mozilla/jsipc/PHandleParent.h"
++#include "mozilla/jsipc/PHandleChild.h"
++
++#include "jsapi.h"
++#include "jsobj.h"
++
++namespace mozilla {
++namespace jsipc {
++
++template <class BaseType>
++class Handle
++    : public BaseType
++{
++public:
++
++    Handle(Handle* parent)
++        : mParent(parent)
++        , mObj(NULL)
++    {
++        if (parent)
++            parent->mChildren.AppendElement(this);
++    }
++
++    JSObject* GetJSObject(JSContext* cx) const {
++        JSClass* clasp = const_cast<JSClass*>(&sHandle_JSClass);
++        if (!mObj && (mObj = JS_NewObject(cx, clasp, NULL, NULL)))
++            JS_SetPrivate(cx, mObj, (void*)this);
++        return mObj;
++    }
++
++protected:
++
++    // XXX Why not simply ActorDestroyReason?
++    void ActorDestroy(typename Handle::ActorDestroyReason why) {
++        if (mObj) {
++            mObj->setPrivate(NULL);
++            mObj = NULL;
++        }
++    }
++
++private:
++
++    static const JSClass sHandle_JSClass;
++
++    static void Finalize(JSContext* cx, JSObject* obj) {
++        Handle *self = static_cast<Handle*>(JS_GetPrivate(cx, obj));
++        if (self) {
++            for (Handle **iter = self->mChildren.Elements(),
++                        **end  = self->mChildren.Length() + iter;
++                 iter != end;
++                 ++iter)
++                Send__delete__(*iter);
++            Send__delete__(self);
++        }
++    }
++
++    Handle* const mParent;
++    nsTArray<Handle*> mChildren;
++
++    // Used to cache the JSObject returned by GetJSObject, which is
++    // otherwise a const method.
++    mutable JSObject* mObj;
++
++};
++
++template <class BaseType>
++const JSClass
++Handle<BaseType>::sHandle_JSClass = {
++    "IPDL Handle", JSCLASS_HAS_RESERVED_SLOTS(0),
++    JS_PropertyStub, JS_PropertyStub,
++    JS_PropertyStub, JS_PropertyStub,
++    JS_EnumerateStub, JS_ResolveStub,
++    JS_ConvertStub, Handle::Finalize,
++    JSCLASS_NO_OPTIONAL_MEMBERS
++};
++
++typedef Handle<PHandleParent> HandleParent;
++typedef Handle<PHandleChild> HandleChild;
++
++}}
++
++#endif
+diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
+--- a/js/src/ipc/Makefile.in
++++ b/js/src/ipc/Makefile.in
+@@ -51,16 +51,17 @@ EXPORT_LIBRARY = 1
+ EXPORTS_NAMESPACES = mozilla/jsipc
+ 
+ EXPORTS_mozilla/jsipc = \
+   CPOWTypes.h \
+   ContextWrapperChild.h \
+   ContextWrapperParent.h \
+   ObjectWrapperParent.h \
+   ObjectWrapperChild.h \
++  Handle.h \
+   $(NULL)
+ 
+ CPPSRCS = \
+   ObjectWrapperParent.cpp \
+   ObjectWrapperChild.cpp \
+   $(NULL)
+ 
+ ifdef ENABLE_TESTS
+diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
+--- a/js/src/ipc/ObjectWrapperParent.cpp
++++ b/js/src/ipc/ObjectWrapperParent.cpp
+@@ -35,16 +35,17 @@
+  * and other provisions required by the GPL or the LGPL. If you do not delete
+  * the provisions above, a recipient may use your version of this file under
+  * the terms of any one of the MPL, the GPL or the LGPL.
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ #include "mozilla/jsipc/ObjectWrapperParent.h"
+ #include "mozilla/jsipc/ContextWrapperParent.h"
++#include "mozilla/jsipc/Handle.h"
+ #include "mozilla/jsipc/CPOWTypes.h"
+ 
+ #include "jsobj.h"
+ #include "jsfun.h"
+ #include "jsutil.h"
+ 
+ using namespace mozilla::jsipc;
+ 
+@@ -214,16 +215,19 @@ ObjectWrapperParent::Manager()
+ {
+     PContextWrapperParent* pcwp = PObjectWrapperParent::Manager();
+     return static_cast<ContextWrapperParent*>(pcwp);
+ }
+ 
+ JSObject*
+ ObjectWrapperParent::GetJSObject(JSContext* cx) const
+ {
++    HandleParent hp(0);
++    hp.GetJSObject(cx);
++
+     JSClass* clasp = const_cast<JSClass*>(&ObjectWrapperParent::sCPOW_JSClass.base);
+     if (!mObj && (mObj = JS_NewObject(cx, clasp, NULL, NULL))) {
+         JS_SetPrivate(cx, mObj, (void*)this);
+         JS_SetReservedSlot(cx, mObj, sFlagsSlot, JSVAL_ZERO);
+     }
+     return mObj;
+ }
+ 
+diff --git a/js/src/ipc/PContextWrapper.ipdl b/js/src/ipc/PContextWrapper.ipdl
+--- a/js/src/ipc/PContextWrapper.ipdl
++++ b/js/src/ipc/PContextWrapper.ipdl
+@@ -36,22 +36,26 @@
+  * the provisions above, a recipient may use your version of this file under
+  * the terms of any one of the MPL, the GPL or the LGPL.
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ include protocol "PIFrameEmbedding.ipdl";
+ include protocol "PTestShell.ipdl";
+ include protocol "PObjectWrapper.ipdl";
++include protocol "PHandle.ipdl";
+ 
+ namespace mozilla {
+ namespace jsipc {
+ 
+ rpc protocol PContextWrapper
+ {
+     manager PIFrameEmbedding or PTestShell;
+     manages PObjectWrapper;
++    manages PHandle;
+ parent:
+     async __delete__();
+     async PObjectWrapper(bool makeGlobal);
++both:
++    async PHandle(nullable PHandle parentHandle);
+ };
+ 
+ }}
+diff --git a/js/src/ipc/PHandle.ipdl b/js/src/ipc/PHandle.ipdl
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/PHandle.ipdl
+@@ -0,0 +1,53 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sw=4 et tw=80:
++ *
++ * ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is mozilla.org code.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2010
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *   Ben Newman <b{enjam,newma}n@mozilla.com> (original author)
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either of the GNU General Public License Version 2 or later (the "GPL"),
++ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++include protocol "PContextWrapper.ipdl";
++
++namespace mozilla {
++namespace jsipc {
++
++protocol PHandle
++{
++    manager PContextWrapper;
++both:
++    __delete__();
++};
++
++}}
+diff --git a/js/src/ipc/ipdl.mk b/js/src/ipc/ipdl.mk
+--- a/js/src/ipc/ipdl.mk
++++ b/js/src/ipc/ipdl.mk
+@@ -33,9 +33,10 @@
+ # the provisions above, a recipient may use your version of this file under
+ # the terms of any one of the MPL, the GPL or the LGPL.
+ #
+ # ***** END LICENSE BLOCK *****
+ 
+ IPDLSRCS = \
+   PContextWrapper.ipdl \
+   PObjectWrapper.ipdl \
++  PHandle.ipdl \
+   $(NULL)
