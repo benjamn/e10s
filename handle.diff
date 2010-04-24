@@ -203,7 +203,7 @@ new file mode 100644
 +    }
 +
 +    Handle* BearChild() {
-+        return mChildren.AppendElement(Handle(this));
++        return *mChildren.AppendElement(new Handle(this));
 +    }
 +
 +    JSObject* GetJSObject(JSContext* cx) const {
@@ -230,16 +230,16 @@ new file mode 100644
 +    static void Finalize(JSContext* cx, JSObject* obj) {
 +        Handle *self = static_cast<Handle*>(JS_GetPrivate(cx, obj));
 +        if (self) {
-+            Handle *iter = self->mChildren.Elements(),
-+                   *end  = self->mChildren.Length() + iter;
++            Handle **iter = self->mChildren.Elements(),
++                   **end  = self->mChildren.Length() + iter;
 +            while (iter != end)
-+                Send__delete__(iter++);
++                Send__delete__(*iter++);
 +            Send__delete__(self);
 +        }
 +    }
 +
 +    Handle* const mParent;
-+    nsTArray<Handle> mChildren;
++    nsTArray<Handle*> mChildren;
 +
 +    // Used to cache the JSObject returned by GetJSObject, which is
 +    // otherwise a const method.
