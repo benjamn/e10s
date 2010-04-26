@@ -124,7 +124,7 @@ diff --git a/js/src/ipc/Handle.h b/js/src/ipc/Handle.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/Handle.h
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,229 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
 + * vim: set ts=8 sw=4 et tw=80:
 + *
@@ -200,9 +200,19 @@ new file mode 100644
 +    }
 +
 +    JSObject* GetJSObject(JSContext* cx) const {
-+        JSClass* clasp = const_cast<JSClass*>(&sHandle_JSClass);
-+        if (!mObj && (mObj = JS_NewObject(cx, clasp, NULL, NULL)))
-+            JS_SetPrivate(cx, mObj, (void*)this);
++        if (!mObj) {
++            JSClass* clasp = const_cast<JSClass*>(&sHandle_JSClass);
++            JSPropertySpec* ps = const_cast<JSPropertySpec*>(sHandle_Properties);
++            JSFunctionSpec* fs = const_cast<JSFunctionSpec*>(sHandle_Functions);
++
++            JSObject* obj = JS_NewObject(cx, clasp, NULL, NULL);
++            if (JS_SetPrivate(cx, obj, (void*)this) &&
++                JS_DefineProperties(cx, obj, ps) &&
++                JS_DefineFunctions(cx, obj, fs))
++            {
++                mObj = obj;
++            }
++        }
 +        return mObj;
 +    }
 +
@@ -218,10 +228,67 @@ new file mode 100644
 +
 +private:
 +
-+    static const JSClass sHandle_JSClass;
++    static const JSClass        sHandle_JSClass;
++    static const JSPropertySpec sHandle_Properties[];
++    static const JSFunctionSpec sHandle_Functions[];
 +
-+    static void Finalize(JSContext* cx, JSObject* obj) {
-+        Handle *self = static_cast<Handle*>(JS_GetPrivate(cx, obj));
++    static Handle*
++    Unwrap(JSContext* cx, JSObject* obj) {
++        if (!obj)
++            return NULL;
++
++        while (obj->getClass() != &sHandle_JSClass)
++            if (!(obj = obj->getProto()))
++                return NULL;
++
++        Handle* self = static_cast<Handle*>(JS_GetPrivate(cx, obj));
++
++        NS_ASSERTION(!self || self->GetJSObject(cx) == obj,
++                     "Wrapper and wrapped object disagree?");
++
++        return self;
++    }
++
++    static JSBool
++    GetParent(JSContext* cx, JSObject* obj, jsval, jsval* vp) {
++        Handle* self = Unwrap(cx, obj);
++        if (!self) {
++            JS_ReportError(cx, "Unwrap failed while getting parent");
++            return JS_FALSE;
++        }
++
++        Handle* parent = self->mParent;
++        *vp = parent ? OBJECT_TO_JSVAL(parent->GetJSObject(cx))
++                     : JSVAL_NULL;
++
++        return JS_TRUE;
++    }
++
++    static JSBool
++    GetIsValid(JSContext* cx, JSObject* obj, jsval, jsval* vp) {
++        *vp = Unwrap(cx, obj) ? JS_TRUE : JS_FALSE;
++        return JS_TRUE;
++    }
++
++    static JSBool
++    Invalidate(JSContext* cx, uintN argc, jsval* vp) {
++        if (argc > 0) {
++            JS_ReportError(cx, "invalidate takes zero arguments");
++            return JS_FALSE;
++        }
++
++        Handle* self = Unwrap(cx, JS_THIS_OBJECT(cx, vp));
++        if (!self) {
++            JS_ReportError(cx, "Unwrap failed while invalidating");
++            return JS_FALSE;
++        }
++
++        return Send__delete__(self);
++    }
++
++    static void
++    Finalize(JSContext* cx, JSObject* obj) {
++        Handle* self = Unwrap(cx, obj);
 +        if (self) {
 +            Handle **iter = self->mChildren.Elements(),
 +                   **end  = self->mChildren.Length() + iter;
@@ -251,6 +318,36 @@ new file mode 100644
 +    JSCLASS_NO_OPTIONAL_MEMBERS
 +};
 +
++#define HANDLE_PROP_FLAGS (JSPROP_SHARED |           \
++                           JSPROP_READONLY |         \
++                           JSPROP_PERMANENT |        \
++                           JSPROP_GETTER)
++
++template <class BaseType>
++const JSPropertySpec
++Handle<BaseType>::sHandle_Properties[] = {
++    { "parent",  0, HANDLE_PROP_FLAGS, GetParent,  NULL },
++    { "isValid", 0, HANDLE_PROP_FLAGS, GetIsValid, NULL },
++    { 0, 0, 0, NULL, NULL }
++};
++
++#undef HANDLE_PROP_FLAGS
++
++#define HANDLE_FUN_FLAGS (JSFUN_FAST_NATIVE |   \
++                          JSPROP_READONLY |     \
++                          JSPROP_PERMANENT)
++
++template <class BaseType>
++const JSFunctionSpec
++Handle<BaseType>::sHandle_Functions[] = {
++  JS_FN("invalidate", Invalidate, 0, HANDLE_FUN_FLAGS),
++  JS_FS_END
++};
++
++#undef HANDLE_FUN_FLAGS
++
++// The payoff for using templates is that these two implementations are
++// perfectly symmetric:
 +typedef Handle<PHandleParent> HandleParent;
 +typedef Handle<PHandleChild> HandleChild;
 +
