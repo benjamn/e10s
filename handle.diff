@@ -124,7 +124,7 @@ diff --git a/js/src/ipc/Handle.h b/js/src/ipc/Handle.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/Handle.h
-@@ -0,0 +1,229 @@
+@@ -0,0 +1,239 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
 + * vim: set ts=8 sw=4 et tw=80:
 + *
@@ -220,10 +220,7 @@ new file mode 100644
 +
 +    // XXX Why not simply ActorDestroyReason?
 +    void ActorDestroy(typename Handle::ActorDestroyReason why) {
-+        if (mObj) {
-+            mObj->setPrivate(NULL);
-+            mObj = NULL;
-+        }
++        TearDown();
 +    }
 +
 +private:
@@ -270,6 +267,22 @@ new file mode 100644
 +        return JS_TRUE;
 +    }
 +
++    void TearDown() {
++        if (!mObj)
++            return;
++
++        mObj->setPrivate(NULL);
++        mObj = NULL;
++
++        Handle **iter = this->mChildren.Elements(),
++               **end  = this->mChildren.Length() + iter;
++
++        while (iter != end)
++            Send__delete__(*iter++);
++
++        Send__delete__(this);
++    }
++
 +    static JSBool
 +    Invalidate(JSContext* cx, uintN argc, jsval* vp) {
 +        if (argc > 0) {
@@ -283,19 +296,16 @@ new file mode 100644
 +            return JS_FALSE;
 +        }
 +
-+        return Send__delete__(self);
++        self->TearDown();
++
++        return JS_TRUE;
 +    }
 +
 +    static void
 +    Finalize(JSContext* cx, JSObject* obj) {
 +        Handle* self = Unwrap(cx, obj);
-+        if (self) {
-+            Handle **iter = self->mChildren.Elements(),
-+                   **end  = self->mChildren.Length() + iter;
-+            while (iter != end)
-+                Send__delete__(*iter++);
-+            Send__delete__(self);
-+        }
++        if (self)
++            self->TearDown();
 +    }
 +
 +    Handle* const mParent;
