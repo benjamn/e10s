@@ -19,7 +19,7 @@ diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
  namespace mozilla {
  namespace jsipc {
  
-@@ -76,33 +77,47 @@ public:
+@@ -76,33 +77,41 @@ public:
              if (wrapper)
                  mResidentObjectTable.Put(obj, wrapper);
              else
@@ -46,19 +46,13 @@ diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
      }
  
 -private:
-+    PHandleChild* AllocPHandle(PHandleChild* parent) {
-+        return HandleChild::Create(parent);
-+    }
-+
-+    bool RecvPHandleConstructor(PHandleChild* actor,
-+                                PHandleChild* parent)
-+    {
-+        return true;
++    PHandleChild* AllocPHandle() {
++        return new HandleChild();
 +    }
 +
 +    bool DeallocPHandle(PHandleChild* actor)
 +    {
-+        HandleChild::Destroy(actor);
++        delete actor;
 +        return true;
 +    }
  
@@ -90,7 +84,7 @@ diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent
  #include "nsAutoJSValHolder.h"
  
  namespace mozilla {
-@@ -107,13 +108,29 @@ private:
+@@ -107,13 +108,23 @@ private:
              mGlobal == static_cast<ObjectWrapperParent*>(actor)) {
              mGlobalHolder.Release();
              mGlobal = NULL;
@@ -99,19 +93,13 @@ diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent
          return true;
      }
  
-+    PHandleParent* AllocPHandle(PHandleParent* parent) {
-+        return HandleParent::Create(parent);
-+    }
-+
-+    bool RecvPHandleConstructor(PHandleParent* actor,
-+                                PHandleParent* parent)
-+    {
-+        return true;
++    PHandleParent* AllocPHandle() {
++        return new HandleParent();
 +    }
 +
 +    bool DeallocPHandle(PHandleParent* actor)
 +    {
-+        HandleParent::Destroy(actor);
++        delete actor;
 +        return true;
 +    }
 +
@@ -124,7 +112,7 @@ diff --git a/js/src/ipc/Handle.h b/js/src/ipc/Handle.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/Handle.h
-@@ -0,0 +1,239 @@
+@@ -0,0 +1,243 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
 + * vim: set ts=8 sw=4 et tw=80:
 + *
@@ -173,6 +161,7 @@ new file mode 100644
 +
 +#include "jsapi.h"
 +#include "jsobj.h"
++#include "jscntxt.h"
 +
 +namespace mozilla {
 +namespace jsipc {
@@ -184,33 +173,44 @@ new file mode 100644
 +    Handle(Handle* parent)
 +        : mParent(parent)
 +        , mObj(NULL)
-+    {
-+        if (parent)
-+            parent->mChildren.AppendElement(this);
++    {}
++
++    BaseType* AllocPHandle() {
++        return new Handle(this);
++    }
++
++    bool DeallocPHandle(BaseType* actor) {
++        delete actor;
++        return true;
 +    }
 +
 +public:
 +
-+    static Handle* Create(BaseType* parent) {
-+        return new Handle(static_cast<Handle*>(parent));
-+    }
-+
-+    static void Destroy(BaseType* handle) {
-+        delete handle;
-+    }
++    Handle()
++        : mParent(NULL)
++        , mObj(NULL)
++    {}
 +
 +    JSObject* GetJSObject(JSContext* cx) const {
-+        if (!mObj) {
++        if (!mObj && !mRuntime) {
 +            JSClass* clasp = const_cast<JSClass*>(&sHandle_JSClass);
++            JSObject* obj = JS_NewObject(cx, clasp, NULL, NULL);
++            if (!obj)
++                return NULL;
++            js::AutoValueRooter avr(cx, obj);
++
 +            JSPropertySpec* ps = const_cast<JSPropertySpec*>(sHandle_Properties);
 +            JSFunctionSpec* fs = const_cast<JSFunctionSpec*>(sHandle_Functions);
++            JSRuntime* rt;
 +
-+            JSObject* obj = JS_NewObject(cx, clasp, NULL, NULL);
 +            if (JS_SetPrivate(cx, obj, (void*)this) &&
 +                JS_DefineProperties(cx, obj, ps) &&
-+                JS_DefineFunctions(cx, obj, fs))
++                JS_DefineFunctions(cx, obj, fs) &&
++                JS_AddNamedRootRT(rt = JS_GetRuntime(cx), (void*)&mObj,
++                                  "mozilla::jsipc::Handle<BaseType>::mObj"))
 +            {
 +                mObj = obj;
++                mRuntime = rt;
 +            }
 +        }
 +        return mObj;
@@ -220,7 +220,17 @@ new file mode 100644
 +
 +    // XXX Why not simply ActorDestroyReason?
 +    void ActorDestroy(typename Handle::ActorDestroyReason why) {
-+        TearDown();
++        if (mObj) {
++            mObj->setPrivate(NULL);
++            mObj = NULL;
++        }
++        // Nulling out mObj effectively unroots the object, but we still
++        // need to remove the root for good hygiene's sake.
++        if (mRuntime) {
++            JS_RemoveRootRT(mRuntime, (void*)&mObj);
++            // By not nulling out mRuntime, we prevent GetJSObject from
++            // reviving an invalidated/destroyed handle.
++        }
 +    }
 +
 +private:
@@ -228,6 +238,13 @@ new file mode 100644
 +    static const JSClass        sHandle_JSClass;
 +    static const JSPropertySpec sHandle_Properties[];
 +    static const JSFunctionSpec sHandle_Functions[];
++
++    Handle* const mParent;
++
++    // Used to cache the JSObject returned by GetJSObject, which is
++    // otherwise a const method.
++    mutable JSObject*  mObj;
++    mutable JSRuntime* mRuntime;
 +
 +    static Handle*
 +    Unwrap(JSContext* cx, JSObject* obj) {
@@ -267,22 +284,6 @@ new file mode 100644
 +        return JS_TRUE;
 +    }
 +
-+    void TearDown() {
-+        if (!mObj)
-+            return;
-+
-+        mObj->setPrivate(NULL);
-+        mObj = NULL;
-+
-+        Handle **iter = this->mChildren.Elements(),
-+               **end  = this->mChildren.Length() + iter;
-+
-+        while (iter != end)
-+            Send__delete__(*iter++);
-+
-+        Send__delete__(this);
-+    }
-+
 +    static JSBool
 +    Invalidate(JSContext* cx, uintN argc, jsval* vp) {
 +        if (argc > 0) {
@@ -296,24 +297,15 @@ new file mode 100644
 +            return JS_FALSE;
 +        }
 +
-+        self->TearDown();
-+
-+        return JS_TRUE;
++        return Send__delete__(self);
 +    }
 +
 +    static void
 +    Finalize(JSContext* cx, JSObject* obj) {
 +        Handle* self = Unwrap(cx, obj);
 +        if (self)
-+            self->TearDown();
++            Send__delete__(self);
 +    }
-+
-+    Handle* const mParent;
-+    nsTArray<Handle*> mChildren;
-+
-+    // Used to cache the JSObject returned by GetJSObject, which is
-+    // otherwise a const method.
-+    mutable JSObject* mObj;
 +
 +};
 +
@@ -357,7 +349,7 @@ new file mode 100644
 +#undef HANDLE_FUN_FLAGS
 +
 +// The payoff for using templates is that these two implementations are
-+// perfectly symmetric:
++// guaranteed to be perfectly symmetric:
 +typedef Handle<PHandleParent> HandleParent;
 +typedef Handle<PHandleChild> HandleChild;
 +
@@ -385,6 +377,49 @@ diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
    $(NULL)
  
  ifdef ENABLE_TESTS
+diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
+--- a/js/src/ipc/ObjectWrapperChild.cpp
++++ b/js/src/ipc/ObjectWrapperChild.cpp
+@@ -38,16 +38,17 @@
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ #include "base/basictypes.h"
+ #include "jscntxt.h"
+ 
+ #include "mozilla/jsipc/ContextWrapperChild.h"
+ #include "mozilla/jsipc/ObjectWrapperChild.h"
++#include "mozilla/jsipc/Handle.h"
+ #include "mozilla/jsipc/CPOWTypes.h"
+ 
+ #include "jsapi.h"
+ #include "nsAutoPtr.h"
+ #include "nsTArray.h"
+ #include "nsContentUtils.h"
+ #include "nsIJSContextStack.h"
+ 
+@@ -128,16 +129,21 @@ ObjectWrapperChild::CheckOperation(JSCon
+                                    OperationStatus* status)
+ {
+     NS_PRECONDITION(status->type() != OperationStatus::T__None,
+                     "Checking an uninitialized operation.");
+ 
+     JSContext* cx = Manager()->GetContext();
+     jsval thrown;
+ 
++#ifdef DEBUG
++    if (!cx) // Never actually do this; just force template expansion.
++        (new HandleChild())->GetJSObject(cx);
++#endif
++
+     if (JS_GetPendingException(cx, &thrown)) {
+         NS_ASSERTION(!(status->type() == OperationStatus::TJSBool &&
+                        status->get_JSBool()),
+                      "Operation succeeded but exception was thrown?");
+         JSVariant exception;
+         if (!jsval_to_JSVariant(cx, thrown, &exception))
+             exception = void_t(); // XXX Useful?
+         *status = exception;
 diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
 --- a/js/src/ipc/ObjectWrapperParent.cpp
 +++ b/js/src/ipc/ObjectWrapperParent.cpp
@@ -406,7 +441,7 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
  using namespace mozilla::jsipc;
  
-@@ -214,16 +215,19 @@ ObjectWrapperParent::Manager()
+@@ -214,16 +215,21 @@ ObjectWrapperParent::Manager()
  {
      PContextWrapperParent* pcwp = PObjectWrapperParent::Manager();
      return static_cast<ContextWrapperParent*>(pcwp);
@@ -415,8 +450,10 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  JSObject*
  ObjectWrapperParent::GetJSObject(JSContext* cx) const
  {
++#ifdef DEBUG
 +    if (!cx) // Never actually do this; just force template expansion.
-+        HandleParent::Create(0)->GetJSObject(cx); // TODO Temporary!
++        (new HandleParent())->GetJSObject(cx);
++#endif
 +
      JSClass* clasp = const_cast<JSClass*>(&ObjectWrapperParent::sCPOW_JSClass.base);
      if (!mObj && (mObj = JS_NewObject(cx, clasp, NULL, NULL))) {
@@ -435,10 +472,10 @@ diff --git a/js/src/ipc/PContextWrapper.ipdl b/js/src/ipc/PContextWrapper.ipdl
   *
   * ***** END LICENSE BLOCK ***** */
  
- include protocol "PIFrameEmbedding.ipdl";
- include protocol "PTestShell.ipdl";
- include protocol "PObjectWrapper.ipdl";
-+include protocol "PHandle.ipdl";
+ include protocol PIFrameEmbedding;
+ include protocol PTestShell;
+ include protocol PObjectWrapper;
++include protocol PHandle;
  
  namespace mozilla {
  namespace jsipc {
@@ -452,7 +489,7 @@ diff --git a/js/src/ipc/PContextWrapper.ipdl b/js/src/ipc/PContextWrapper.ipdl
      async __delete__();
      async PObjectWrapper(bool makeGlobal);
 +both:
-+    async PHandle(nullable PHandle parentHandle);
++    async PHandle();
  };
  
  }}
@@ -460,7 +497,7 @@ diff --git a/js/src/ipc/PHandle.ipdl b/js/src/ipc/PHandle.ipdl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/PHandle.ipdl
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,55 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
 + * vim: set ts=8 sw=4 et tw=80:
 + *
@@ -501,15 +538,17 @@ new file mode 100644
 + *
 + * ***** END LICENSE BLOCK ***** */
 +
-+include protocol "PContextWrapper.ipdl";
++include protocol PContextWrapper;
 +
 +namespace mozilla {
 +namespace jsipc {
 +
 +protocol PHandle
 +{
-+    manager PContextWrapper;
++    manager PContextWrapper or PHandle;
++    manages PHandle;
 +both:
++    async PHandle();
 +    __delete__();
 +};
 +
@@ -528,3 +567,23 @@ diff --git a/js/src/ipc/ipdl.mk b/js/src/ipc/ipdl.mk
    PObjectWrapper.ipdl \
 +  PHandle.ipdl \
    $(NULL)
+diff --git a/js/src/ipc/tests/unit/handle_child.js b/js/src/ipc/tests/unit/handle_child.js
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/tests/unit/handle_child.js
+@@ -0,0 +1,1 @@
++function run_test() {}
+diff --git a/js/src/ipc/tests/unit/test_handle.js b/js/src/ipc/tests/unit/test_handle.js
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/tests/unit/test_handle.js
+@@ -0,0 +1,9 @@
++function run_test() {
++  run_test_in_child("handle_child.js",
++                    run_actual_tests);
++}
++
++function run_actual_tests() {
++  getChildGlobalObject();
++  do_test_finished();
++}
