@@ -1,3 +1,5 @@
+Bug 562414 - Implement an opaque Handle primitive for providing context to (a)synchronous IPC calls.
+
 diff --git a/ipc/testshell/TestShellParent.cpp b/ipc/testshell/TestShellParent.cpp
 --- a/ipc/testshell/TestShellParent.cpp
 +++ b/ipc/testshell/TestShellParent.cpp
