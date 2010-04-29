@@ -1,3 +1,129 @@
+diff --git a/ipc/testshell/TestShellParent.cpp b/ipc/testshell/TestShellParent.cpp
+--- a/ipc/testshell/TestShellParent.cpp
++++ b/ipc/testshell/TestShellParent.cpp
+@@ -32,25 +32,28 @@
+  * the provisions above, a recipient may use your version of this file under
+  * the terms of any one of the MPL, the GPL or the LGPL.
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
+ #include "TestShellParent.h"
+ #include "mozilla/dom/ContentProcessParent.h"
+ #include "mozilla/jsipc/ContextWrapperParent.h"
++#include "mozilla/jsipc/Handle.h"
+ 
+ #include "nsAutoPtr.h"
+ 
+ using mozilla::ipc::TestShellParent;
+ using mozilla::ipc::TestShellCommandParent;
+ using mozilla::ipc::PTestShellCommandParent;
+ using mozilla::dom::ContentProcessParent;
+ using mozilla::jsipc::PContextWrapperParent;
+ using mozilla::jsipc::ContextWrapperParent;
++using mozilla::jsipc::PHandleParent;
++using mozilla::jsipc::HandleParent;
+ 
+ PTestShellCommandParent*
+ TestShellParent::AllocPTestShellCommand(const nsString& aCommand)
+ {
+   return new TestShellCommandParent();
+ }
+ 
+ bool
+@@ -81,27 +84,43 @@ TestShellParent::AllocPContextWrapper()
+ 
+ bool
+ TestShellParent::DeallocPContextWrapper(PContextWrapperParent* actor)
+ {
+     delete actor;
+     return true;
+ }
+ 
++ContextWrapperParent*
++TestShellParent::GetContextWrapper()
++{
++    nsTArray<PContextWrapperParent*> cwps(1);
++    ManagedPContextWrapperParent(cwps);
++    if (cwps.Length() < 1)
++        return nsnull;
++    NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
++    return static_cast<ContextWrapperParent*>(cwps[0]);
++}
++
+ JSBool
+ TestShellParent::GetGlobalJSObject(JSContext* cx, JSObject** globalp)
+ {
+-    // TODO Unify this code with TabParent::GetGlobalJSObject.
+-    nsTArray<PContextWrapperParent*> cwps(1);
+-    ManagedPContextWrapperParent(cwps);
+-    if (cwps.Length() < 1)
++    ContextWrapperParent* cwp = GetContextWrapper();
++    return cwp && cwp->GetGlobalJSObject(cx, globalp);
++}
++
++JSBool
++TestShellParent::CreateHandle(JSContext* cx,
++                              JSObject** handlep)
++{
++    ContextWrapperParent* cwp = GetContextWrapper();
++    if (!cwp)
+         return JS_FALSE;
+-    NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
+-    ContextWrapperParent* cwp = static_cast<ContextWrapperParent*>(cwps[0]);
+-    return cwp->GetGlobalJSObject(cx, globalp);
++    PHandleParent* php = cwp->SendPHandleConstructor();
++    return !!(*handlep = static_cast<HandleParent*>(php)->GetJSObject(cx));
+ }
+ 
+ JSBool
+ TestShellCommandParent::SetCallback(JSContext* aCx,
+                                     jsval aCallback)
+ {
+   if (!mCallback.Hold(aCx)) {
+     return JS_FALSE;
+diff --git a/ipc/testshell/TestShellParent.h b/ipc/testshell/TestShellParent.h
+--- a/ipc/testshell/TestShellParent.h
++++ b/ipc/testshell/TestShellParent.h
+@@ -49,16 +49,17 @@
+ 
+ struct JSContext;
+ struct JSObject;
+ 
+ namespace mozilla {
+ 
+ namespace jsipc {
+ class PContextWrapperParent;
++class ContextWrapperParent;
+ }
+ 
+ namespace ipc {
+ 
+ class TestShellCommandParent;
+ 
+ class TestShellParent : public PTestShellParent
+ {
+@@ -71,16 +72,21 @@ public:
+ 
+   bool
+   CommandDone(TestShellCommandParent* aActor, const nsString& aResponse);
+ 
+   PContextWrapperParent* AllocPContextWrapper();
+   bool DeallocPContextWrapper(PContextWrapperParent* actor);
+ 
+   JSBool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
++
++  JSBool CreateHandle(JSContext* cx, JSObject** handlep);
++
++private:
++  mozilla::jsipc::ContextWrapperParent* GetContextWrapper();
+ };
+ 
+ 
+ class TestShellCommandParent : public PTestShellCommandParent
+ {
+ public:
+   TestShellCommandParent() : mCx(NULL) { }
+ 
 diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
 --- a/js/src/ipc/ContextWrapperChild.h
 +++ b/js/src/ipc/ContextWrapperChild.h
@@ -112,7 +238,7 @@ diff --git a/js/src/ipc/Handle.h b/js/src/ipc/Handle.h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/Handle.h
-@@ -0,0 +1,243 @@
+@@ -0,0 +1,275 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
 + * vim: set ts=8 sw=4 et tw=80:
 + *
@@ -173,6 +299,7 @@ new file mode 100644
 +    Handle(Handle* parent)
 +        : mParent(parent)
 +        , mObj(NULL)
++        , mRuntime(NULL)
 +    {}
 +
 +    BaseType* AllocPHandle() {
@@ -189,6 +316,7 @@ new file mode 100644
 +    Handle()
 +        : mParent(NULL)
 +        , mObj(NULL)
++        , mRuntime(NULL)
 +    {}
 +
 +    JSObject* GetJSObject(JSContext* cx) const {
@@ -223,10 +351,9 @@ new file mode 100644
 +        if (mObj) {
 +            mObj->setPrivate(NULL);
 +            mObj = NULL;
-+        }
-+        // Nulling out mObj effectively unroots the object, but we still
-+        // need to remove the root for good hygiene's sake.
-+        if (mRuntime) {
++            // Nulling out mObj effectively unroots the object, but we still
++            // need to remove the root for good hygiene's sake.
++            NS_ASSERTION(mRuntime, "Should have a JSRuntime if we had an object");
 +            JS_RemoveRootRT(mRuntime, (void*)&mObj);
 +            // By not nulling out mRuntime, we prevent GetJSObject from
 +            // reviving an invalidated/destroyed handle.
@@ -265,22 +392,26 @@ new file mode 100644
 +
 +    static JSBool
 +    GetParent(JSContext* cx, JSObject* obj, jsval, jsval* vp) {
++        JS_SET_RVAL(cx, vp, JSVAL_NULL);
++
 +        Handle* self = Unwrap(cx, obj);
-+        if (!self) {
-+            JS_ReportError(cx, "Unwrap failed while getting parent");
-+            return JS_FALSE;
-+        }
++        if (!self)
++            return JS_TRUE;
 +
 +        Handle* parent = self->mParent;
-+        *vp = parent ? OBJECT_TO_JSVAL(parent->GetJSObject(cx))
-+                     : JSVAL_NULL;
++        if (!parent)
++            return JS_TRUE;
++
++        JSObject* pobj = parent->GetJSObject(cx);
++        JS_SET_RVAL(cx, vp, OBJECT_TO_JSVAL(pobj));
 +
 +        return JS_TRUE;
 +    }
 +
 +    static JSBool
 +    GetIsValid(JSContext* cx, JSObject* obj, jsval, jsval* vp) {
-+        *vp = Unwrap(cx, obj) ? JS_TRUE : JS_FALSE;
++        Handle* self = Unwrap(cx, obj);
++        JS_SET_RVAL(cx, vp, BOOLEAN_TO_JSVAL(!!self));
 +        return JS_TRUE;
 +    }
 +
@@ -292,19 +423,48 @@ new file mode 100644
 +        }
 +
 +        Handle* self = Unwrap(cx, JS_THIS_OBJECT(cx, vp));
-+        if (!self) {
-+            JS_ReportError(cx, "Unwrap failed while invalidating");
++        if (self) {
++            JS_SET_RVAL(cx, vp, BOOLEAN_TO_JSVAL(JS_TRUE));
++            if (!Send__delete__(self)) {
++                JS_ReportError(cx, "Failed to send __delete__ while invalidating");
++                return JS_FALSE;
++            }
++        } else {
++            JS_SET_RVAL(cx, vp, BOOLEAN_TO_JSVAL(JS_FALSE));
++        }
++
++        return JS_TRUE;
++    }
++
++    static JSBool
++    CreateChild(JSContext* cx, uintN argc, jsval* vp) {
++        if (argc > 0) {
++            JS_ReportError(cx, "createChild takes zero arguments");
 +            return JS_FALSE;
 +        }
 +
-+        return Send__delete__(self);
++        Handle* self = Unwrap(cx, JS_THIS_OBJECT(cx, vp));
++        if (!self) {
++            JS_ReportError(cx, "Tried to create child from invalid handle");
++            return JS_FALSE;
++        }
++
++        BaseType* child = self->SendPHandleConstructor();
++        if (!child) {
++            JS_ReportError(cx, "Failed to construct child");
++            return JS_FALSE;
++        }
++
++        JSObject* obj = static_cast<Handle*>(child)->GetJSObject(cx);
++        JS_SET_RVAL(cx, vp, OBJECT_TO_JSVAL(obj));
++
++        return JS_TRUE;
 +    }
 +
 +    static void
 +    Finalize(JSContext* cx, JSObject* obj) {
 +        Handle* self = Unwrap(cx, obj);
-+        if (self)
-+            Send__delete__(self);
++        self && Send__delete__(self);
 +    }
 +
 +};
@@ -312,7 +472,7 @@ new file mode 100644
 +template <class BaseType>
 +const JSClass
 +Handle<BaseType>::sHandle_JSClass = {
-+    "IPDL Handle", JSCLASS_HAS_RESERVED_SLOTS(0),
++    "IPDL Handle", JSCLASS_HAS_PRIVATE,
 +    JS_PropertyStub, JS_PropertyStub,
 +    JS_PropertyStub, JS_PropertyStub,
 +    JS_EnumerateStub, JS_ResolveStub,
@@ -320,10 +480,7 @@ new file mode 100644
 +    JSCLASS_NO_OPTIONAL_MEMBERS
 +};
 +
-+#define HANDLE_PROP_FLAGS (JSPROP_SHARED |           \
-+                           JSPROP_READONLY |         \
-+                           JSPROP_PERMANENT |        \
-+                           JSPROP_GETTER)
++#define HANDLE_PROP_FLAGS (JSPROP_READONLY | JSPROP_PERMANENT)
 +
 +template <class BaseType>
 +const JSPropertySpec
@@ -342,8 +499,9 @@ new file mode 100644
 +template <class BaseType>
 +const JSFunctionSpec
 +Handle<BaseType>::sHandle_Functions[] = {
-+  JS_FN("invalidate", Invalidate, 0, HANDLE_FUN_FLAGS),
-+  JS_FS_END
++    JS_FN("invalidate",  Invalidate,  0, HANDLE_FUN_FLAGS),
++    JS_FN("createChild", CreateChild, 0, HANDLE_FUN_FLAGS),
++    JS_FS_END
 +};
 +
 +#undef HANDLE_FUN_FLAGS
@@ -441,28 +599,6 @@ diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent
  
  using namespace mozilla::jsipc;
  
-@@ -214,16 +215,21 @@ ObjectWrapperParent::Manager()
- {
-     PContextWrapperParent* pcwp = PObjectWrapperParent::Manager();
-     return static_cast<ContextWrapperParent*>(pcwp);
- }
- 
- JSObject*
- ObjectWrapperParent::GetJSObject(JSContext* cx) const
- {
-+#ifdef DEBUG
-+    if (!cx) // Never actually do this; just force template expansion.
-+        (new HandleParent())->GetJSObject(cx);
-+#endif
-+
-     JSClass* clasp = const_cast<JSClass*>(&ObjectWrapperParent::sCPOW_JSClass.base);
-     if (!mObj && (mObj = JS_NewObject(cx, clasp, NULL, NULL))) {
-         JS_SetPrivate(cx, mObj, (void*)this);
-         JS_SetReservedSlot(cx, mObj, sFlagsSlot, JSVAL_ZERO);
-     }
-     return mObj;
- }
- 
 diff --git a/js/src/ipc/PContextWrapper.ipdl b/js/src/ipc/PContextWrapper.ipdl
 --- a/js/src/ipc/PContextWrapper.ipdl
 +++ b/js/src/ipc/PContextWrapper.ipdl
@@ -543,12 +679,12 @@ new file mode 100644
 +namespace mozilla {
 +namespace jsipc {
 +
-+protocol PHandle
++async protocol PHandle
 +{
 +    manager PContextWrapper or PHandle;
 +    manages PHandle;
 +both:
-+    async PHandle();
++    PHandle();
 +    __delete__();
 +};
 +
@@ -577,13 +713,214 @@ diff --git a/js/src/ipc/tests/unit/test_handle.js b/js/src/ipc/tests/unit/test_h
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/test_handle.js
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,105 @@
 +function run_test() {
++  //gczeal(2);
 +  run_test_in_child("handle_child.js",
 +                    run_actual_tests);
 +}
 +
 +function run_actual_tests() {
-+  getChildGlobalObject();
++  test_sanity();
++  test_safe_iteration();
++  test_local_invalidation();
++  test_long_parent_chain(100);
++  test_invalid_creation();
 +  do_test_finished();
 +}
++
++function test_sanity() {
++  var parent = createHandle(),
++      child = parent.createChild(),
++      grandchild = child.createChild();
++
++  do_check_neq(child, parent);
++  do_check_eq(child.parent, parent);
++  do_check_eq(parent.parent, null);
++  do_check_eq(grandchild.parent.parent, parent);
++
++  do_check_true(child.isValid);
++  do_check_true(parent.isValid);
++
++  parent.invalidate();
++}
++
++function test_safe_iteration() {
++  var handle = createHandle(),
++      keys = [];
++  handle.foo = 42;
++  handle.self = handle;
++  for (var k in handle)
++    keys[keys.length] = k;
++  do_check_eq(keys.sort().join("~"),
++              "foo~self");
++  handle.invalidate();
++}
++
++function test_local_invalidation() {
++  var parent = createHandle(),
++      child = parent.createChild();
++
++  do_check_true(child.invalidate());
++  do_check_false(child.isValid);
++  do_check_true(parent.isValid);
++
++  child = parent.createChild();
++  do_check_true(child.isValid);
++
++  do_check_true(parent.invalidate());
++  do_check_false(parent.invalidate());
++  do_check_false(child.isValid);
++  do_check_false(parent.isValid);
++
++  parent = createHandle();
++  child = parent.createChild();
++  child = child.createChild();
++
++  var uncle = parent.createChild(),
++      sibling = child.parent.createChild();
++
++  do_check_eq(child.parent.parent, parent);
++  do_check_true(child.parent.isValid);
++
++  do_check_true(child.parent.invalidate());
++  do_check_false(child.isValid);
++  do_check_true(parent.isValid);
++
++  do_check_false(sibling.isValid);
++  do_check_true(uncle.isValid);
++
++  parent.invalidate();
++}
++
++function test_long_parent_chain(len) {
++  for (var handle = createHandle(), i = 0; i < len; ++i)
++    handle = handle.createChild();
++
++  var ancestor = handle;
++  while (ancestor.parent)
++    ancestor = ancestor.parent;
++
++  do_check_true(handle.isValid);
++  do_check_true(ancestor.invalidate());
++  do_check_false(handle.isValid);
++}
++
++function test_invalid_creation() {
++  var parent = createHandle(),
++      child = parent.createChild();
++
++  parent.invalidate();
++
++  do_check_eq(child.parent, null);
++
++  var threw = false;
++  try { child.createChild(); }
++  catch (x) { threw = true; }
++  do_check_true(threw);
++}
+diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
+--- a/js/src/xpconnect/shell/xpcshell.cpp
++++ b/js/src/xpconnect/shell/xpcshell.cpp
+@@ -704,16 +704,31 @@ GetChildGlobalObject(JSContext* cx,
+     JSObject* global;
+     if (XRE_GetChildGlobalObject(cx, &global)) {
+         *rval = OBJECT_TO_JSVAL(global);
+         return JS_TRUE;
+     }
+     return JS_FALSE;
+ }
+ 
++static JSBool
++CreateHandle(JSContext* cx,
++             JSObject*,
++             uintN,
++             jsval*,
++             jsval* rval)
++{
++    JSObject* handle;
++    if (XRE_CreateHandle(cx, &handle)) {
++        *rval = OBJECT_TO_JSVAL(handle);
++        return JS_TRUE;
++    }
++    return JS_FALSE;
++}
++
+ #endif // MOZ_IPC
+ 
+ /*
+  * JSContext option name to flag map. The option names are in alphabetical
+  * order for better reporting.
+  */
+ static const struct {
+     const char  *name;
+@@ -825,16 +840,17 @@ static JSFunctionSpec glob_functions[] =
+     {"clear",           Clear,          1,0,0},
+     {"options",         Options,        0,0,0},
+ #ifdef DEBUG
+     {"dumpHeap",        DumpHeap,       5,0,0},
+ #endif
+ #ifdef MOZ_IPC
+     {"sendCommand",     SendCommand,    1,0,0},
+     {"getChildGlobalObject", GetChildGlobalObject, 0,0,0},
++    {"createHandle",    CreateHandle,   0,0,0},
+ #endif
+ #ifdef MOZ_SHARK
+     {"startShark",      js_StartShark,      0,0,0},
+     {"stopShark",       js_StopShark,       0,0,0},
+     {"connectShark",    js_ConnectShark,    0,0,0},
+     {"disconnectShark", js_DisconnectShark, 0,0,0},
+ #endif
+ #ifdef MOZ_CALLGRIND
+diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
+--- a/toolkit/xre/nsEmbedFunctions.cpp
++++ b/toolkit/xre/nsEmbedFunctions.cpp
+@@ -564,16 +564,23 @@ XRE_SendTestShellCommand(JSContext* aCx,
+ bool
+ XRE_GetChildGlobalObject(JSContext* aCx, JSObject** aGlobalP)
+ {
+     TestShellParent* tsp = GetOrCreateTestShellParent();
+     return tsp && tsp->GetGlobalJSObject(aCx, aGlobalP);
+ }
+ 
+ bool
++XRE_CreateHandle(JSContext* aCx, JSObject** aHandleP)
++{
++    TestShellParent* tsp = GetOrCreateTestShellParent();
++    return tsp && tsp->CreateHandle(aCx, aHandleP);
++}
++
++bool
+ XRE_ShutdownTestShell()
+ {
+   if (!gTestShellParent)
+     return true;
+   return ContentProcessParent::GetSingleton()->DestroyTestShell(gTestShellParent);
+ }
+ 
+ #ifdef MOZ_X11
+diff --git a/xpcom/build/nsXULAppAPI.h b/xpcom/build/nsXULAppAPI.h
+--- a/xpcom/build/nsXULAppAPI.h
++++ b/xpcom/build/nsXULAppAPI.h
+@@ -502,16 +502,20 @@ struct JSString;
+ XRE_API(bool,
+         XRE_SendTestShellCommand, (JSContext* aCx,
+                                    JSString* aCommand,
+                                    void* aCallback))
+ struct JSObject;
+ 
+ XRE_API(bool,
+         XRE_GetChildGlobalObject, (JSContext* aCx,
+-                                   JSObject** globalp))
++                                   JSObject** aGlobalP))
++
++XRE_API(bool,
++        XRE_CreateHandle, (JSContext* aCx,
++                           JSObject** aHandleP))
+ 
+ XRE_API(bool,
+         XRE_ShutdownTestShell, ())
+ 
+ XRE_API(void,
+         XRE_InstallX11ErrorHandler, ())
+ #endif // _nsXULAppAPI_h__
