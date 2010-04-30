@@ -1,3 +1,4 @@
+* * *
 Bug 562414 - Implement an opaque Handle primitive for providing context to (a)synchronous IPC calls.
 
 diff --git a/ipc/testshell/TestShellChild.cpp b/ipc/testshell/TestShellChild.cpp
@@ -192,7 +193,29 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
  class FullTrustSecMan : public nsIScriptSecurityManager
  {
  public:
-@@ -551,16 +556,19 @@ mozilla::ipc::XPCShellEnvironment::sGlob
+@@ -523,17 +528,20 @@ Clear(JSContext *cx,
+         JS_ClearScope(cx, JSVAL_TO_OBJECT(argv[0]));
+     } else {
+         JS_ReportError(cx, "'clear' requires an object");
+         return JS_FALSE;
+     }
+     return JS_TRUE;
+ }
+ 
+-JSFunctionSpec gGlobalFunctions[] =
++} // namespace {
++
++const JSFunctionSpec
++mozilla::ipc::XPCShellEnvironment::sGlobalFunctions[] =
+ {
+     {"print",           Print,          0,0,0},
+     {"load",            Load,           1,0,0},
+     {"quit",            Quit,           0,0,0},
+     {"version",         Version,        1,0,0},
+     {"build",           BuildDate,      0,0,0},
+     {"dumpXPC",         DumpXPC,        1,0,0},
+     {"dump",            Dump,           1,0,0},
+@@ -548,19 +556,24 @@ JSFunctionSpec gGlobalFunctions[] =
      {"connectShark",    js_ConnectShark,    0,0,0},
      {"disconnectShark", js_DisconnectShark, 0,0,0},
  #endif
@@ -207,12 +230,17 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
      {nsnull,nsnull,0,0,0}
  };
  
- namespace {
- 
++namespace {
++
  typedef enum JSShellErrNum
  {
  #define MSG_DEF(name, number, count, exception, format) \
-@@ -1039,16 +1047,17 @@ XPCShellEnvironment::CreateEnvironment()
+     name = number,
+ #include "jsshell.msg"
+ #undef MSG_DEF
+     JSShellErr_Limit
+ #undef MSGDEF
+@@ -1034,16 +1047,17 @@ XPCShellEnvironment::CreateEnvironment()
          env = nsnull;
      }
      return env;
@@ -230,7 +258,28 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
  }
  
  XPCShellEnvironment::~XPCShellEnvironment()
-@@ -1249,8 +1258,29 @@ XPCShellEnvironment::EvaluateString(cons
+@@ -1184,18 +1198,18 @@ XPCShellEnvironment::Init()
+     if (NS_FAILED(rv)) {
+         NS_ERROR("Failed to get global JSObject!");
+         return false;
+     }
+ 
+ 
+     {
+         JSAutoRequest ar(cx);
+-
+-        if (!JS_DefineFunctions(cx, globalObj, gGlobalFunctions)) {
++        JSFunctionSpec* fs = const_cast<JSFunctionSpec*>(sGlobalFunctions);
++        if (!JS_DefineFunctions(cx, globalObj, fs)) {
+             NS_ERROR("JS_DefineFunctions failed!");
+             return false;
+         }
+     }
+ 
+     mGlobalHolder = globalObj;
+ 
+     FILE* runtimeScriptFile = fopen(kDefaultRuntimeScriptFilename, "r");
+@@ -1244,8 +1258,29 @@ XPCShellEnvironment::EvaluateString(cons
            }
        }
    }
@@ -285,7 +334,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnviron
      static XPCShellEnvironment* CreateEnvironment();
      ~XPCShellEnvironment();
  
-@@ -100,36 +105,45 @@ public:
+@@ -100,34 +105,45 @@ public:
  
      void SetShouldCompoleOnly(JSBool aCompileOnly) {
          mCompileOnly = aCompileOnly;
@@ -312,8 +361,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnviron
      bool Init();
  
  private:
-     static const JSFunctionSpec sGlobalFunctions[];
--
++    static const JSFunctionSpec sGlobalFunctions[];
 +    static JSBool CreateHandle(JSContext* cx,
 +                               JSObject* obj,
 +                               uintN argc,
