@@ -1,1 +1,3 @@
+static-xpc-env-globals.diff
 handle.diff
+silence-delete-warning.diff

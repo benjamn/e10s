@@ -1,5 +1,29 @@
 Bug 562414 - Implement an opaque Handle primitive for providing context to (a)synchronous IPC calls.
 
+diff --git a/ipc/testshell/TestShellChild.cpp b/ipc/testshell/TestShellChild.cpp
+--- a/ipc/testshell/TestShellChild.cpp
++++ b/ipc/testshell/TestShellChild.cpp
+@@ -89,17 +89,19 @@ TestShellChild::RecvPTestShellCommandCon
+   return PTestShellCommandChild::Send__delete__(aActor, response);
+ }
+ 
+ PContextWrapperChild*
+ TestShellChild::AllocPContextWrapper()
+ {
+   JSContext* cx;
+   if (mXPCShell && (cx = mXPCShell->GetContext())) {
+-    return new ContextWrapperChild(cx);
++    ContextWrapperChild* actor = new ContextWrapperChild(cx);
++    mXPCShell->SetPContextWrapper(actor);
++    return actor;
+   }
+   return NULL;
+ }
+ 
+ bool
+ TestShellChild::DeallocPContextWrapper(PContextWrapperChild* actor)
+ {
+   delete actor;
 diff --git a/ipc/testshell/TestShellParent.cpp b/ipc/testshell/TestShellParent.cpp
 --- a/ipc/testshell/TestShellParent.cpp
 +++ b/ipc/testshell/TestShellParent.cpp
@@ -126,6 +150,188 @@ diff --git a/ipc/testshell/TestShellParent.h b/ipc/testshell/TestShellParent.h
  public:
    TestShellCommandParent() : mCx(NULL) { }
  
+diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvironment.cpp
+--- a/ipc/testshell/XPCShellEnvironment.cpp
++++ b/ipc/testshell/XPCShellEnvironment.cpp
+@@ -47,16 +47,19 @@
+ 
+ #include "jsapi.h"
+ #include "jscntxt.h"
+ #include "jsdbgapi.h"
+ #include "jsprf.h"
+ 
+ #include "XPCShellEnvironment.h"
+ 
++#include "mozilla/jsipc/PContextWrapperChild.h"
++#include "mozilla/jsipc/Handle.h"
++
+ #include "mozilla/XPCOM.h"
+ 
+ #include "nsIChannel.h"
+ #include "nsIClassInfo.h"
+ #include "nsIDirectoryService.h"
+ #include "nsIJSContextStack.h"
+ #include "nsIJSRuntimeService.h"
+ #include "nsIPrincipal.h"
+@@ -73,16 +76,18 @@
+ #include "TestShellParent.h"
+ 
+ #define EXITCODE_RUNTIME_ERROR 3
+ #define EXITCODE_FILE_NOT_FOUND 4
+ 
+ using mozilla::ipc::XPCShellEnvironment;
+ using mozilla::ipc::TestShellChild;
+ using mozilla::ipc::TestShellParent;
++using mozilla::jsipc::PContextWrapperChild;
++using mozilla::jsipc::HandleChild;
+ 
+ namespace {
+ 
+ static const char kDefaultRuntimeScriptFilename[] = "xpcshell.js";
+ 
+ class FullTrustSecMan : public nsIScriptSecurityManager
+ {
+ public:
+@@ -551,16 +556,19 @@ mozilla::ipc::XPCShellEnvironment::sGlob
+     {"connectShark",    js_ConnectShark,    0,0,0},
+     {"disconnectShark", js_DisconnectShark, 0,0,0},
+ #endif
+ #ifdef MOZ_CALLGRIND
+     {"startCallgrind",  js_StartCallgrind,  0,0,0},
+     {"stopCallgrind",   js_StopCallgrind,   0,0,0},
+     {"dumpCallgrind",   js_DumpCallgrind,   1,0,0},
+ #endif
++#ifdef MOZ_IPC
++    {"createHandle",    CreateHandle,       0,0,0},
++#endif
+     {nsnull,nsnull,0,0,0}
+ };
+ 
+ namespace {
+ 
+ typedef enum JSShellErrNum
+ {
+ #define MSG_DEF(name, number, count, exception, format) \
+@@ -1039,16 +1047,17 @@ XPCShellEnvironment::CreateEnvironment()
+         env = nsnull;
+     }
+     return env;
+ }
+ 
+ XPCShellEnvironment::XPCShellEnvironment()
+ :   mCx(NULL),
+     mJSPrincipals(NULL),
++    mContextWrapper(NULL),
+     mExitCode(0),
+     mQuitting(JS_FALSE),
+     mReportWarnings(JS_TRUE),
+     mCompileOnly(JS_FALSE)
+ {
+ }
+ 
+ XPCShellEnvironment::~XPCShellEnvironment()
+@@ -1249,8 +1258,29 @@ XPCShellEnvironment::EvaluateString(cons
+           }
+       }
+   }
+ 
+   JS_DestroyScript(mCx, script);
+ 
+   return true;
+ }
++
++JSBool
++XPCShellEnvironment::CreateHandle(JSContext* cx,
++                                  JSObject* obj,
++                                  uintN argc,
++                                  jsval* argv,
++                                  jsval* rval)
++{
++    if (argc > 0) {
++        JS_ReportError(cx, "createHandle takes zero arguments");
++        return JS_FALSE;
++    }
++    PContextWrapperChild* cw = Environment(cx)->mContextWrapper;
++    if (!cw) {
++        JS_ReportError(cx, "Could not create handle from context");
++        return JS_FALSE;
++    }
++    HandleChild* handle = static_cast<HandleChild*>(cw->SendPHandleConstructor());
++    JS_SET_RVAL(cx, rval, OBJECT_TO_JSVAL(handle->GetJSObject(cx)));
++    return JS_TRUE;
++}
+diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnvironment.h
+--- a/ipc/testshell/XPCShellEnvironment.h
++++ b/ipc/testshell/XPCShellEnvironment.h
+@@ -49,16 +49,21 @@
+ 
+ struct JSContext;
+ struct JSObject;
+ struct JSPrincipals;
+ 
+ class nsIJSContextStack;
+ 
+ namespace mozilla {
++
++namespace jsipc {
++class PContextWrapperChild;
++}
++
+ namespace ipc {
+ 
+ class XPCShellEnvironment
+ {
+ public:
+     static XPCShellEnvironment* CreateEnvironment();
+     ~XPCShellEnvironment();
+ 
+@@ -100,36 +105,45 @@ public:
+ 
+     void SetShouldCompoleOnly(JSBool aCompileOnly) {
+         mCompileOnly = aCompileOnly;
+     }
+     JSBool ShouldCompileOnly() {
+         return mCompileOnly;
+     }
+ 
++    void SetPContextWrapper(mozilla::jsipc::PContextWrapperChild* actor) {
++        mContextWrapper = actor;
++    }
++
+     class AutoContextPusher
+     {
+     public:
+         AutoContextPusher(XPCShellEnvironment* aEnv);
+         ~AutoContextPusher();
+     private:
+         XPCShellEnvironment* mEnv;
+     };
+ 
+ protected:
+     XPCShellEnvironment();
+     bool Init();
+ 
+ private:
+     static const JSFunctionSpec sGlobalFunctions[];
+-
++    static JSBool CreateHandle(JSContext* cx,
++                               JSObject* obj,
++                               uintN argc,
++                               jsval* argv,
++                               jsval* rval);
+     JSContext* mCx;
+     nsAutoJSValHolder mGlobalHolder;
+     nsCOMPtr<nsIJSContextStack> mCxStack;
+     JSPrincipals* mJSPrincipals;
++    mozilla::jsipc::PContextWrapperChild* mContextWrapper;
+ 
+     int mExitCode;
+     JSBool mQuitting;
+     JSBool mReportWarnings;
+     JSBool mCompileOnly;
+ };
+ 
+ } /* namespace ipc */
 diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
 --- a/js/src/ipc/ContextWrapperChild.h
 +++ b/js/src/ipc/ContextWrapperChild.h
@@ -519,7 +725,18 @@ new file mode 100644
 diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
 --- a/js/src/ipc/Makefile.in
 +++ b/js/src/ipc/Makefile.in
-@@ -51,16 +51,17 @@ EXPORT_LIBRARY = 1
+@@ -40,27 +40,27 @@ topsrcdir = @top_srcdir@
+ srcdir    = @srcdir@
+ VPATH     = @srcdir@
+ 
+ include $(DEPTH)/config/autoconf.mk
+ 
+ MODULE = js
+ LIBRARY_NAME = jsipc_s
+ LIBXUL_LIBRARY = 1
+-FORCE_STATIC_LIB = 1
+ EXPORT_LIBRARY = 1
+ 
  EXPORTS_NAMESPACES = mozilla/jsipc
  
  EXPORTS_mozilla/jsipc = \
@@ -709,26 +926,23 @@ diff --git a/js/src/ipc/tests/unit/handle_child.js b/js/src/ipc/tests/unit/handl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/handle_child.js
-@@ -0,0 +1,1 @@
-+function run_test() {}
-diff --git a/js/src/ipc/tests/unit/test_handle.js b/js/src/ipc/tests/unit/test_handle.js
+@@ -0,0 +1,5 @@
++load("handle_common.js");
++
++function run_test() {
++  run_common_tests();
++}
+diff --git a/js/src/ipc/tests/unit/handle_common.js b/js/src/ipc/tests/unit/handle_common.js
 new file mode 100644
 --- /dev/null
-+++ b/js/src/ipc/tests/unit/test_handle.js
-@@ -0,0 +1,105 @@
-+function run_test() {
-+  //gczeal(2);
-+  run_test_in_child("handle_child.js",
-+                    run_actual_tests);
-+}
-+
-+function run_actual_tests() {
++++ b/js/src/ipc/tests/unit/handle_common.js
+@@ -0,0 +1,98 @@
++function run_common_tests() {
 +  test_sanity();
 +  test_safe_iteration();
 +  test_local_invalidation();
 +  test_long_parent_chain(100);
 +  test_invalid_creation();
-+  do_test_finished();
 +}
 +
 +function test_sanity() {
@@ -820,6 +1034,22 @@ new file mode 100644
 +  try { child.createChild(); }
 +  catch (x) { threw = true; }
 +  do_check_true(threw);
++}
+diff --git a/js/src/ipc/tests/unit/test_handle.js b/js/src/ipc/tests/unit/test_handle.js
+new file mode 100644
+--- /dev/null
++++ b/js/src/ipc/tests/unit/test_handle.js
+@@ -0,0 +1,11 @@
++load("handle_common.js");
++
++function run_test() {
++  run_test_in_child("handle_child.js",
++                    run_actual_tests);
++}
++
++function run_actual_tests() {
++  run_common_tests();
++  do_test_finished();
 +}
 diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshell.cpp
 --- a/js/src/xpconnect/shell/xpcshell.cpp
