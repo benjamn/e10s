@@ -1,6 +1,125 @@
 * * *
 Bug 562414 - Implement an opaque Handle primitive for providing context to (a)synchronous IPC calls.
 
+diff --git a/content/base/src/nsFrameLoader.cpp b/content/base/src/nsFrameLoader.cpp
+--- a/content/base/src/nsFrameLoader.cpp
++++ b/content/base/src/nsFrameLoader.cpp
+@@ -1646,17 +1646,17 @@ nsFrameLoader::GetCrossProcessObjectWrap
+    nsIXPConnect* xpc;
+    nsIThreadJSContextStack* stack;
+    JSContext* cx;
+    JSObject* global;
+  
+    if ((xpc = nsContentUtils::XPConnect()) &&
+        (stack = nsContentUtils::ThreadJSContextStack()) &&
+        NS_SUCCEEDED(stack->Peek(&cx)) && cx &&
+-       mChildProcess->GetGlobalJSObject(cx, &global)) {
++       mChildProcess->GetChildGlobalObject(cx, &global)) {
+      return xpc->JSToVariant(cx, OBJECT_TO_JSVAL(global), cpow);
+    }
+ #endif
+    return NS_ERROR_NOT_AVAILABLE;
+ }
+ 
+ nsresult
+ nsFrameLoader::CreateStaticClone(nsIFrameLoader* aDest)
+diff --git a/dom/ipc/ContentProcessChild.cpp b/dom/ipc/ContentProcessChild.cpp
+--- a/dom/ipc/ContentProcessChild.cpp
++++ b/dom/ipc/ContentProcessChild.cpp
+@@ -49,16 +49,17 @@
+ #include "base/message_loop.h"
+ #include "base/task.h"
+ 
+ #include "nsChromeRegistryContent.h"
+ #include "mozilla/chrome/RegistryMessageUtils.h"
+ 
+ using namespace mozilla::ipc;
+ using namespace mozilla::net;
++using mozilla::jsipc::PContextWrapperChild;
+ 
+ namespace mozilla {
+ namespace dom {
+ 
+ ContentProcessChild* ContentProcessChild::sSingleton;
+ 
+ ContentProcessChild::ContentProcessChild()
+     : mQuit(PR_FALSE)
+@@ -118,17 +119,19 @@ ContentProcessChild::DeallocPTestShell(P
+ {
+     mTestShells.RemoveElement(shell);
+     return true;
+ }
+ 
+ bool
+ ContentProcessChild::RecvPTestShellConstructor(PTestShellChild* actor)
+ {
+-    actor->SendPContextWrapperConstructor()->SendPObjectWrapperConstructor(true);
++    PContextWrapperChild* cwc = actor->SendPContextWrapperConstructor();
++    cwc->SendPObjectWrapperConstructor(true);
++    cwc->SendPHandleConstructor(true);
+     return true;
+ }
+ 
+ PNeckoChild* 
+ ContentProcessChild::AllocPNecko()
+ {
+     return new NeckoChild();
+ }
+diff --git a/dom/ipc/TabParent.cpp b/dom/ipc/TabParent.cpp
+--- a/dom/ipc/TabParent.cpp
++++ b/dom/ipc/TabParent.cpp
+@@ -445,26 +445,26 @@ TabParent::AllocPContextWrapper()
+ bool
+ TabParent::DeallocPContextWrapper(PContextWrapperParent* actor)
+ {
+     delete actor;
+     return true;
+ }
+ 
+ JSBool
+-TabParent::GetGlobalJSObject(JSContext* cx, JSObject** globalp)
++TabParent::GetChildGlobalObject(JSContext* cx, JSObject** globalp)
+ {
+-    // TODO Unify this code with TestShellParent::GetGlobalJSObject.
++    // TODO Unify this code with TestShellParent::GetChildGlobalObject.
+     nsTArray<PContextWrapperParent*> cwps(1);
+     ManagedPContextWrapperParent(cwps);
+     if (cwps.Length() < 1)
+         return JS_FALSE;
+     NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
+     ContextWrapperParent* cwp = static_cast<ContextWrapperParent*>(cwps[0]);
+-    return cwp->GetGlobalJSObject(cx, globalp);
++    return cwp->GetChildGlobalObject(cx, globalp);
+ }
+ 
+ void
+ TabParent::SendMouseEvent(const nsAString& aType, float aX, float aY,
+                           PRInt32 aButton, PRInt32 aClickCount,
+                           PRInt32 aModifiers, PRBool aIgnoreRootScrollFrame)
+ {
+   SendsendMouseEvent(nsString(aType), aX, aY, aButton, aClickCount,
+diff --git a/dom/ipc/TabParent.h b/dom/ipc/TabParent.h
+--- a/dom/ipc/TabParent.h
++++ b/dom/ipc/TabParent.h
+@@ -155,17 +155,17 @@ public:
+             const PRInt32& bufw,
+             const PRInt32& bufh,
+             Shmem& buf);
+     virtual bool DeallocPDocumentRendererShmem(PDocumentRendererShmemParent* actor);
+ 
+     virtual PContextWrapperParent* AllocPContextWrapper();
+     virtual bool DeallocPContextWrapper(PContextWrapperParent* actor);
+ 
+-    JSBool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
++    JSBool GetChildGlobalObject(JSContext* cx, JSObject** globalp);
+ 
+     NS_DECL_ISUPPORTS
+     NS_DECL_NSIWEBPROGRESS
+ 
+ protected:
+     bool ReceiveMessage(const nsString& aMessage,
+                         PRBool aSync,
+                         const nsString& aJSON,
 diff --git a/ipc/testshell/TestShellChild.cpp b/ipc/testshell/TestShellChild.cpp
 --- a/ipc/testshell/TestShellChild.cpp
 +++ b/ipc/testshell/TestShellChild.cpp
@@ -14,9 +133,9 @@ diff --git a/ipc/testshell/TestShellChild.cpp b/ipc/testshell/TestShellChild.cpp
    JSContext* cx;
    if (mXPCShell && (cx = mXPCShell->GetContext())) {
 -    return new ContextWrapperChild(cx);
-+    ContextWrapperChild* actor = new ContextWrapperChild(cx);
-+    mXPCShell->SetPContextWrapper(actor);
-+    return actor;
++      ContextWrapperChild* cwc = new ContextWrapperChild(cx);
++      mXPCShell->SetContextWrapper(cwc);
++      return cwc;
    }
    return NULL;
  }
@@ -28,36 +147,7 @@ diff --git a/ipc/testshell/TestShellChild.cpp b/ipc/testshell/TestShellChild.cpp
 diff --git a/ipc/testshell/TestShellParent.cpp b/ipc/testshell/TestShellParent.cpp
 --- a/ipc/testshell/TestShellParent.cpp
 +++ b/ipc/testshell/TestShellParent.cpp
-@@ -32,25 +32,28 @@
-  * the provisions above, a recipient may use your version of this file under
-  * the terms of any one of the MPL, the GPL or the LGPL.
-  *
-  * ***** END LICENSE BLOCK ***** */
- 
- #include "TestShellParent.h"
- #include "mozilla/dom/ContentProcessParent.h"
- #include "mozilla/jsipc/ContextWrapperParent.h"
-+#include "mozilla/jsipc/Handle.h"
- 
- #include "nsAutoPtr.h"
- 
- using mozilla::ipc::TestShellParent;
- using mozilla::ipc::TestShellCommandParent;
- using mozilla::ipc::PTestShellCommandParent;
- using mozilla::dom::ContentProcessParent;
- using mozilla::jsipc::PContextWrapperParent;
- using mozilla::jsipc::ContextWrapperParent;
-+using mozilla::jsipc::PHandleParent;
-+using mozilla::jsipc::HandleParent;
- 
- PTestShellCommandParent*
- TestShellParent::AllocPTestShellCommand(const nsString& aCommand)
- {
-   return new TestShellCommandParent();
- }
- 
- bool
-@@ -81,27 +84,43 @@ TestShellParent::AllocPContextWrapper()
+@@ -81,27 +81,39 @@ TestShellParent::AllocPContextWrapper()
  
  bool
  TestShellParent::DeallocPContextWrapper(PContextWrapperParent* actor)
@@ -66,40 +156,35 @@ diff --git a/ipc/testshell/TestShellParent.cpp b/ipc/testshell/TestShellParent.c
      return true;
  }
  
+-JSBool
+-TestShellParent::GetGlobalJSObject(JSContext* cx, JSObject** globalp)
 +ContextWrapperParent*
 +TestShellParent::GetContextWrapper()
-+{
-+    nsTArray<PContextWrapperParent*> cwps(1);
-+    ManagedPContextWrapperParent(cwps);
-+    if (cwps.Length() < 1)
+ {
+-    // TODO Unify this code with TabParent::GetGlobalJSObject.
+     nsTArray<PContextWrapperParent*> cwps(1);
+     ManagedPContextWrapperParent(cwps);
+     if (cwps.Length() < 1)
+-        return JS_FALSE;
 +        return nsnull;
-+    NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
+     NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
+-    ContextWrapperParent* cwp = static_cast<ContextWrapperParent*>(cwps[0]);
+-    return cwp->GetGlobalJSObject(cx, globalp);
 +    return static_cast<ContextWrapperParent*>(cwps[0]);
 +}
 +
- JSBool
- TestShellParent::GetGlobalJSObject(JSContext* cx, JSObject** globalp)
- {
--    // TODO Unify this code with TabParent::GetGlobalJSObject.
--    nsTArray<PContextWrapperParent*> cwps(1);
--    ManagedPContextWrapperParent(cwps);
--    if (cwps.Length() < 1)
++JSBool
++TestShellParent::GetChildGlobalObject(JSContext* cx, JSObject** globalp)
++{
 +    ContextWrapperParent* cwp = GetContextWrapper();
-+    return cwp && cwp->GetGlobalJSObject(cx, globalp);
++    return cwp && cwp->GetChildGlobalObject(cx, globalp);
 +}
 +
 +JSBool
-+TestShellParent::CreateHandle(JSContext* cx,
-+                              JSObject** handlep)
++TestShellParent::GetRootHandle(JSContext* cx, JSObject** handlep)
 +{
 +    ContextWrapperParent* cwp = GetContextWrapper();
-+    if (!cwp)
-         return JS_FALSE;
--    NS_ASSERTION(cwps.Length() == 1, "More than one PContextWrapper?");
--    ContextWrapperParent* cwp = static_cast<ContextWrapperParent*>(cwps[0]);
--    return cwp->GetGlobalJSObject(cx, globalp);
-+    PHandleParent* php = cwp->SendPHandleConstructor();
-+    return !!(*handlep = static_cast<HandleParent*>(php)->GetJSObject(cx));
++    return cwp && cwp->GetRootHandle(cx, handlep);
  }
  
  JSBool
@@ -129,7 +214,8 @@ diff --git a/ipc/testshell/TestShellParent.h b/ipc/testshell/TestShellParent.h
  
  class TestShellParent : public PTestShellParent
  {
-@@ -71,16 +72,21 @@ public:
+@@ -70,17 +71,22 @@ public:
+   DeallocPTestShellCommand(PTestShellCommandParent* aActor);
  
    bool
    CommandDone(TestShellCommandParent* aActor, const nsString& aResponse);
@@ -137,9 +223,10 @@ diff --git a/ipc/testshell/TestShellParent.h b/ipc/testshell/TestShellParent.h
    PContextWrapperParent* AllocPContextWrapper();
    bool DeallocPContextWrapper(PContextWrapperParent* actor);
  
-   JSBool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
+-  JSBool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
++  JSBool GetChildGlobalObject(JSContext* cx, JSObject** globalp);
 +
-+  JSBool CreateHandle(JSContext* cx, JSObject** handlep);
++  JSBool GetRootHandle(JSContext* cx, JSObject** handlep);
 +
 +private:
 +  mozilla::jsipc::ContextWrapperParent* GetContextWrapper();
@@ -163,7 +250,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
  
  #include "XPCShellEnvironment.h"
  
-+#include "mozilla/jsipc/PContextWrapperChild.h"
++#include "mozilla/jsipc/ContextWrapperChild.h"
 +#include "mozilla/jsipc/Handle.h"
 +
  #include "mozilla/XPCOM.h"
@@ -174,7 +261,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
  #include "nsIJSContextStack.h"
  #include "nsIJSRuntimeService.h"
  #include "nsIPrincipal.h"
-@@ -73,16 +76,18 @@
+@@ -73,16 +76,17 @@
  #include "TestShellParent.h"
  
  #define EXITCODE_RUNTIME_ERROR 3
@@ -183,8 +270,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
  using mozilla::ipc::XPCShellEnvironment;
  using mozilla::ipc::TestShellChild;
  using mozilla::ipc::TestShellParent;
-+using mozilla::jsipc::PContextWrapperChild;
-+using mozilla::jsipc::HandleChild;
++using mozilla::jsipc::ContextWrapperChild;
  
  namespace {
  
@@ -193,7 +279,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
  class FullTrustSecMan : public nsIScriptSecurityManager
  {
  public:
-@@ -523,17 +528,20 @@ Clear(JSContext *cx,
+@@ -523,17 +527,20 @@ Clear(JSContext *cx,
          JS_ClearScope(cx, JSVAL_TO_OBJECT(argv[0]));
      } else {
          JS_ReportError(cx, "'clear' requires an object");
@@ -215,7 +301,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
      {"build",           BuildDate,      0,0,0},
      {"dumpXPC",         DumpXPC,        1,0,0},
      {"dump",            Dump,           1,0,0},
-@@ -548,19 +556,24 @@ JSFunctionSpec gGlobalFunctions[] =
+@@ -548,19 +555,25 @@ JSFunctionSpec gGlobalFunctions[] =
      {"connectShark",    js_ConnectShark,    0,0,0},
      {"disconnectShark", js_DisconnectShark, 0,0,0},
  #endif
@@ -225,7 +311,8 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
      {"dumpCallgrind",   js_DumpCallgrind,   1,0,0},
  #endif
 +#ifdef MOZ_IPC
-+    {"createHandle",    CreateHandle,       0,0,0},
++    JS_FN("getRootHandle", GetRootHandle, 0,
++          (JSPROP_READONLY | JSPROP_PERMANENT)),
 +#endif
      {nsnull,nsnull,0,0,0}
  };
@@ -290,23 +377,23 @@ diff --git a/ipc/testshell/XPCShellEnvironment.cpp b/ipc/testshell/XPCShellEnvir
  }
 +
 +JSBool
-+XPCShellEnvironment::CreateHandle(JSContext* cx,
-+                                  JSObject* obj,
-+                                  uintN argc,
-+                                  jsval* argv,
-+                                  jsval* rval)
++XPCShellEnvironment::GetRootHandle(JSContext* cx,
++                                   uintN argc,
++                                   jsval* vp)
 +{
 +    if (argc > 0) {
 +        JS_ReportError(cx, "createHandle takes zero arguments");
 +        return JS_FALSE;
 +    }
-+    PContextWrapperChild* cw = Environment(cx)->mContextWrapper;
-+    if (!cw) {
++    ContextWrapperChild* cwc = Environment(cx)->mContextWrapper;
++    if (!cwc) {
 +        JS_ReportError(cx, "Could not create handle from context");
 +        return JS_FALSE;
 +    }
-+    HandleChild* handle = static_cast<HandleChild*>(cw->SendPHandleConstructor());
-+    JS_SET_RVAL(cx, rval, OBJECT_TO_JSVAL(handle->GetJSObject(cx)));
++    JSObject* hobj;
++    if (!cwc->GetRootHandle(cx, &hobj))
++        return JS_FALSE;
++    JS_SET_RVAL(cx, vp, OBJECT_TO_JSVAL(hobj));
 +    return JS_TRUE;
 +}
 diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnvironment.h
@@ -323,7 +410,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnviron
  namespace mozilla {
 +
 +namespace jsipc {
-+class PContextWrapperChild;
++class ContextWrapperChild;
 +}
 +
  namespace ipc {
@@ -334,7 +421,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnviron
      static XPCShellEnvironment* CreateEnvironment();
      ~XPCShellEnvironment();
  
-@@ -100,34 +105,45 @@ public:
+@@ -100,34 +105,46 @@ public:
  
      void SetShouldCompoleOnly(JSBool aCompileOnly) {
          mCompileOnly = aCompileOnly;
@@ -343,7 +430,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnviron
          return mCompileOnly;
      }
  
-+    void SetPContextWrapper(mozilla::jsipc::PContextWrapperChild* actor) {
++    void SetContextWrapper(mozilla::jsipc::ContextWrapperChild* actor) {
 +        mContextWrapper = actor;
 +    }
 +
@@ -362,16 +449,17 @@ diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnviron
  
  private:
 +    static const JSFunctionSpec sGlobalFunctions[];
-+    static JSBool CreateHandle(JSContext* cx,
-+                               JSObject* obj,
-+                               uintN argc,
-+                               jsval* argv,
-+                               jsval* rval);
++
++    static JSBool
++    GetRootHandle(JSContext* cx,
++                  uintN argc,
++                  jsval* vp);
++
      JSContext* mCx;
      nsAutoJSValHolder mGlobalHolder;
      nsCOMPtr<nsIJSContextStack> mCxStack;
      JSPrincipals* mJSPrincipals;
-+    mozilla::jsipc::PContextWrapperChild* mContextWrapper;
++    mozilla::jsipc::ContextWrapperChild* mContextWrapper;
  
      int mExitCode;
      JSBool mQuitting;
@@ -383,7 +471,7 @@ diff --git a/ipc/testshell/XPCShellEnvironment.h b/ipc/testshell/XPCShellEnviron
 diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
 --- a/js/src/ipc/ContextWrapperChild.h
 +++ b/js/src/ipc/ContextWrapperChild.h
-@@ -38,16 +38,17 @@
+@@ -38,31 +38,33 @@
   *
   * ***** END LICENSE BLOCK ***** */
  
@@ -401,7 +489,23 @@ diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
  namespace mozilla {
  namespace jsipc {
  
-@@ -76,33 +77,41 @@ public:
+ class ContextWrapperChild
+     : public PContextWrapperChild
+ {
+ public:
+ 
+     ContextWrapperChild(JSContext* cx)
+         : mContext(cx)
++        , mRootHandle(NULL)
+     {
+         mResidentObjectTable.Init();
+     }
+ 
+     JSContext* GetContext() { return mContext; }
+ 
+     PObjectWrapperChild* GetOrCreateWrapper(JSObject* obj,
+                                             bool makeGlobal = false)
+@@ -76,36 +78,59 @@ public:
              if (wrapper)
                  mResidentObjectTable.Put(obj, wrapper);
              else
@@ -411,7 +515,22 @@ diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
      }
  
 -protected:
++    JSBool GetRootHandle(JSContext* cx, JSObject** handlep) {
++        if (!mRootHandle) {
++            JS_ReportError(cx, "No root handle defined yet");
++            return JS_FALSE;
++        }
++        *handlep = mRootHandle->GetJSObject(cx);
++        return JS_TRUE;
++    }
++
 +private:
++
++    JSContext* const mContext;
++    HandleChild*     mRootHandle;
++
++    nsClassHashtable<nsPtrHashKey<JSObject>,
++                     PObjectWrapperChild> mResidentObjectTable;
  
      PObjectWrapperChild* AllocPObjectWrapper(JSObject* obj) {
          return new ObjectWrapperChild(mContext, obj);
@@ -428,23 +547,30 @@ diff --git a/js/src/ipc/ContextWrapperChild.h b/js/src/ipc/ContextWrapperChild.h
      }
  
 -private:
-+    PHandleChild* AllocPHandle() {
-+        return new HandleChild();
++    PHandleChild* AllocPHandle(const bool& makeRoot) {
++        HandleChild* handle = new HandleChild();
++        if (makeRoot)
++            mRootHandle = handle;
++        return handle;
 +    }
-+
-+    bool DeallocPHandle(PHandleChild* actor)
-+    {
+ 
+-    JSContext* const mContext;
+-
+-    nsClassHashtable<nsPtrHashKey<JSObject>,
+-                     PObjectWrapperChild> mResidentObjectTable;
++    bool DeallocPHandle(PHandleChild* actor) {
++        if (mRootHandle &&
++            mRootHandle == static_cast<HandleChild*>(actor))
++            mRootHandle = NULL;
 +        delete actor;
 +        return true;
 +    }
  
-     JSContext* const mContext;
- 
-     nsClassHashtable<nsPtrHashKey<JSObject>,
-                      PObjectWrapperChild> mResidentObjectTable;
- 
  };
  
+ }}
+ 
+ #endif
 diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent.h
 --- a/js/src/ipc/ContextWrapperParent.h
 +++ b/js/src/ipc/ContextWrapperParent.h
@@ -466,30 +592,114 @@ diff --git a/js/src/ipc/ContextWrapperParent.h b/js/src/ipc/ContextWrapperParent
  #include "nsAutoJSValHolder.h"
  
  namespace mozilla {
-@@ -107,13 +108,23 @@ private:
-             mGlobal == static_cast<ObjectWrapperParent*>(actor)) {
-             mGlobalHolder.Release();
-             mGlobal = NULL;
+@@ -57,62 +58,84 @@ using mozilla::dom::ContentProcessParent
+     
+ class ContextWrapperParent
+     : public PContextWrapperParent
+ {
+ public:
+ 
+     ContextWrapperParent(ContentProcessParent* cpp)
+         : mContentProcess(cpp)
+-        , mGlobal(NULL)
++        , mChildGlobal(NULL)
++        , mRootHandle(NULL)
+     {}
+ 
+-    JSBool GetGlobalJSObject(JSContext* cx, JSObject** globalp) {
+-        if (!mGlobal)
++    JSBool GetChildGlobalObject(JSContext* cx, JSObject** globalp) {
++        if (!mChildGlobal) {
++            JS_ReportError(cx, "No child global object defined yet");
+             return JS_FALSE;
+-        mGlobalHolder.Hold(cx);
+-        mGlobalHolder = *globalp = mGlobal->GetJSObject(cx);
++        }
++        mChildGlobalHolder.Hold(cx);
++        mChildGlobalHolder = *globalp = mChildGlobal->GetJSObject(cx);
++        return JS_TRUE;
++    }
++
++    JSBool GetRootHandle(JSContext* cx, JSObject** handlep) {
++        if (!mRootHandle) {
++            JS_ReportError(cx, "No root handle defined yet");
++            return JS_FALSE;
++        }
++        *handlep = mRootHandle->GetJSObject(cx);
+         return JS_TRUE;
+     }
+ 
+     ObjectWrapperParent* GetGlobalObjectWrapper() const {
+-        return mGlobal;
++        return mChildGlobal;
+     }
+ 
+     bool RequestRunToCompletion() {
+         return mContentProcess->RequestRunToCompletion();
+     }
+ 
+ private:
+ 
+     ContentProcessParent* mContentProcess;
+-    ObjectWrapperParent* mGlobal;
+-    nsAutoJSValHolder mGlobalHolder;
++    ObjectWrapperParent*  mChildGlobal;
++    nsAutoJSValHolder     mChildGlobalHolder;
++    HandleParent*         mRootHandle;
+ 
+-    PObjectWrapperParent* AllocPObjectWrapper(const bool&) {
+-        return new ObjectWrapperParent();
++    PObjectWrapperParent* AllocPObjectWrapper(const bool& makeGlobal) {
++        ObjectWrapperParent* objectWrapper = new ObjectWrapperParent();
++        if (makeGlobal) {
++            mChildGlobalHolder.Release();
++            mChildGlobal = objectWrapper;
++        }
++        return objectWrapper;
+     }
+ 
+-    bool RecvPObjectWrapperConstructor(PObjectWrapperParent* actor,
+-                                       const bool& makeGlobal)
+-    {
+-        if (makeGlobal) {
+-            mGlobalHolder.Release();
+-            mGlobal = static_cast<ObjectWrapperParent*>(actor);
++    bool DeallocPObjectWrapper(PObjectWrapperParent* actor) {
++        if (mChildGlobal &&
++            mChildGlobal == static_cast<ObjectWrapperParent*>(actor)) {
++            mChildGlobalHolder.Release();
++            mChildGlobal = NULL;
          }
++        delete actor;
+         return true;
+     }
+ 
+-    bool DeallocPObjectWrapper(PObjectWrapperParent* actor)
+-    {
+-        if (mGlobal &&
+-            mGlobal == static_cast<ObjectWrapperParent*>(actor)) {
+-            mGlobalHolder.Release();
+-            mGlobal = NULL;
+-        }
++    PHandleParent* AllocPHandle(const bool& makeRoot) {
++        HandleParent* handle = new HandleParent();
++        if (makeRoot)
++            mRootHandle = handle;
++        return handle;
++    }
++
++    bool DeallocPHandle(PHandleParent* actor) {
++        if (mRootHandle &&
++            mRootHandle == static_cast<HandleParent*>(actor))
++            mRootHandle = NULL;
          delete actor;
          return true;
      }
  
-+    PHandleParent* AllocPHandle() {
-+        return new HandleParent();
-+    }
-+
-+    bool DeallocPHandle(PHandleParent* actor)
-+    {
-+        delete actor;
-+        return true;
-+    }
-+
  };
  
  }}
  
- #endif
 diff --git a/js/src/ipc/Handle.h b/js/src/ipc/Handle.h
 new file mode 100644
 --- /dev/null
@@ -773,18 +983,7 @@ new file mode 100644
 diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
 --- a/js/src/ipc/Makefile.in
 +++ b/js/src/ipc/Makefile.in
-@@ -40,27 +40,27 @@ topsrcdir = @top_srcdir@
- srcdir    = @srcdir@
- VPATH     = @srcdir@
- 
- include $(DEPTH)/config/autoconf.mk
- 
- MODULE = js
- LIBRARY_NAME = jsipc_s
- LIBXUL_LIBRARY = 1
--FORCE_STATIC_LIB = 1
- EXPORT_LIBRARY = 1
- 
+@@ -51,16 +51,17 @@ EXPORT_LIBRARY = 1
  EXPORTS_NAMESPACES = mozilla/jsipc
  
  EXPORTS_mozilla/jsipc = \
@@ -802,70 +1001,6 @@ diff --git a/js/src/ipc/Makefile.in b/js/src/ipc/Makefile.in
    $(NULL)
  
  ifdef ENABLE_TESTS
-diff --git a/js/src/ipc/ObjectWrapperChild.cpp b/js/src/ipc/ObjectWrapperChild.cpp
---- a/js/src/ipc/ObjectWrapperChild.cpp
-+++ b/js/src/ipc/ObjectWrapperChild.cpp
-@@ -38,16 +38,17 @@
-  *
-  * ***** END LICENSE BLOCK ***** */
- 
- #include "base/basictypes.h"
- #include "jscntxt.h"
- 
- #include "mozilla/jsipc/ContextWrapperChild.h"
- #include "mozilla/jsipc/ObjectWrapperChild.h"
-+#include "mozilla/jsipc/Handle.h"
- #include "mozilla/jsipc/CPOWTypes.h"
- 
- #include "jsapi.h"
- #include "nsAutoPtr.h"
- #include "nsTArray.h"
- #include "nsContentUtils.h"
- #include "nsIJSContextStack.h"
- 
-@@ -128,16 +129,21 @@ ObjectWrapperChild::CheckOperation(JSCon
-                                    OperationStatus* status)
- {
-     NS_PRECONDITION(status->type() != OperationStatus::T__None,
-                     "Checking an uninitialized operation.");
- 
-     JSContext* cx = Manager()->GetContext();
-     jsval thrown;
- 
-+#ifdef DEBUG
-+    if (!cx) // Never actually do this; just force template expansion.
-+        (new HandleChild())->GetJSObject(cx);
-+#endif
-+
-     if (JS_GetPendingException(cx, &thrown)) {
-         NS_ASSERTION(!(status->type() == OperationStatus::TJSBool &&
-                        status->get_JSBool()),
-                      "Operation succeeded but exception was thrown?");
-         JSVariant exception;
-         if (!jsval_to_JSVariant(cx, thrown, &exception))
-             exception = void_t(); // XXX Useful?
-         *status = exception;
-diff --git a/js/src/ipc/ObjectWrapperParent.cpp b/js/src/ipc/ObjectWrapperParent.cpp
---- a/js/src/ipc/ObjectWrapperParent.cpp
-+++ b/js/src/ipc/ObjectWrapperParent.cpp
-@@ -35,16 +35,17 @@
-  * and other provisions required by the GPL or the LGPL. If you do not delete
-  * the provisions above, a recipient may use your version of this file under
-  * the terms of any one of the MPL, the GPL or the LGPL.
-  *
-  * ***** END LICENSE BLOCK ***** */
- 
- #include "mozilla/jsipc/ObjectWrapperParent.h"
- #include "mozilla/jsipc/ContextWrapperParent.h"
-+#include "mozilla/jsipc/Handle.h"
- #include "mozilla/jsipc/CPOWTypes.h"
- 
- #include "jsobj.h"
- #include "jsfun.h"
- #include "jsutil.h"
- 
- using namespace mozilla::jsipc;
- 
 diff --git a/js/src/ipc/PContextWrapper.ipdl b/js/src/ipc/PContextWrapper.ipdl
 --- a/js/src/ipc/PContextWrapper.ipdl
 +++ b/js/src/ipc/PContextWrapper.ipdl
@@ -892,7 +1027,7 @@ diff --git a/js/src/ipc/PContextWrapper.ipdl b/js/src/ipc/PContextWrapper.ipdl
      async __delete__();
      async PObjectWrapper(bool makeGlobal);
 +both:
-+    async PHandle();
++    async PHandle(bool makeRoot);
  };
  
  }}
@@ -974,17 +1109,24 @@ diff --git a/js/src/ipc/tests/unit/handle_child.js b/js/src/ipc/tests/unit/handl
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/handle_child.js
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,8 @@
 +load("handle_common.js");
 +
 +function run_test() {
 +  run_common_tests();
++  var parent = createHandle(),
++      child = parent.createChild();
 +}
++
 diff --git a/js/src/ipc/tests/unit/handle_common.js b/js/src/ipc/tests/unit/handle_common.js
 new file mode 100644
 --- /dev/null
 +++ b/js/src/ipc/tests/unit/handle_common.js
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,105 @@
++function createHandle() {
++  return getRootHandle().createChild();
++}
++
 +function run_common_tests() {
 +  test_sanity();
 +  test_safe_iteration();
@@ -994,13 +1136,15 @@ new file mode 100644
 +}
 +
 +function test_sanity() {
-+  var parent = createHandle(),
++  var root = getRootHandle(),
++      parent = createHandle(),
 +      child = parent.createChild(),
 +      grandchild = child.createChild();
 +
 +  do_check_neq(child, parent);
 +  do_check_eq(child.parent, parent);
-+  do_check_eq(parent.parent, null);
++  do_check_eq(parent.parent, root);
++  do_check_eq(root.parent, null);
 +  do_check_eq(grandchild.parent.parent, parent);
 +
 +  do_check_true(child.isValid);
@@ -1058,16 +1202,17 @@ new file mode 100644
 +}
 +
 +function test_long_parent_chain(len) {
-+  for (var handle = createHandle(), i = 0; i < len; ++i)
++  const ancestor = createHandle();
++  for (var handle = ancestor, i = 0; i < len; ++i)
 +    handle = handle.createChild();
++  const child = handle;
 +
-+  var ancestor = handle;
-+  while (ancestor.parent)
-+    ancestor = ancestor.parent;
++  while (handle != ancestor)
++    handle = handle.parent;
 +
-+  do_check_true(handle.isValid);
++  do_check_true(child.isValid);
 +  do_check_true(ancestor.invalidate());
-+  do_check_false(handle.isValid);
++  do_check_false(child.isValid);
 +}
 +
 +function test_invalid_creation() {
@@ -1112,14 +1257,14 @@ diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshe
  }
  
 +static JSBool
-+CreateHandle(JSContext* cx,
-+             JSObject*,
-+             uintN,
-+             jsval*,
-+             jsval* rval)
++GetRootHandle(JSContext* cx,
++              JSObject*,
++              uintN,
++              jsval*,
++              jsval* rval)
 +{
 +    JSObject* handle;
-+    if (XRE_CreateHandle(cx, &handle)) {
++    if (XRE_GetRootHandle(cx, &handle)) {
 +        *rval = OBJECT_TO_JSVAL(handle);
 +        return JS_TRUE;
 +    }
@@ -1143,7 +1288,7 @@ diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshe
  #ifdef MOZ_IPC
      {"sendCommand",     SendCommand,    1,0,0},
      {"getChildGlobalObject", GetChildGlobalObject, 0,0,0},
-+    {"createHandle",    CreateHandle,   0,0,0},
++    {"getRootHandle",   GetRootHandle,  0,0,0},
  #endif
  #ifdef MOZ_SHARK
      {"startShark",      js_StartShark,      0,0,0},
@@ -1155,30 +1300,32 @@ diff --git a/js/src/xpconnect/shell/xpcshell.cpp b/js/src/xpconnect/shell/xpcshe
 diff --git a/toolkit/xre/nsEmbedFunctions.cpp b/toolkit/xre/nsEmbedFunctions.cpp
 --- a/toolkit/xre/nsEmbedFunctions.cpp
 +++ b/toolkit/xre/nsEmbedFunctions.cpp
-@@ -564,16 +564,23 @@ XRE_SendTestShellCommand(JSContext* aCx,
+@@ -560,17 +560,24 @@ XRE_SendTestShellCommand(JSContext* aCx,
+ 
+     return true;
+ }
+ 
  bool
  XRE_GetChildGlobalObject(JSContext* aCx, JSObject** aGlobalP)
  {
      TestShellParent* tsp = GetOrCreateTestShellParent();
-     return tsp && tsp->GetGlobalJSObject(aCx, aGlobalP);
- }
- 
- bool
-+XRE_CreateHandle(JSContext* aCx, JSObject** aHandleP)
-+{
-+    TestShellParent* tsp = GetOrCreateTestShellParent();
-+    return tsp && tsp->CreateHandle(aCx, aHandleP);
+-    return tsp && tsp->GetGlobalJSObject(aCx, aGlobalP);
++    return tsp && tsp->GetChildGlobalObject(aCx, aGlobalP);
 +}
 +
 +bool
++XRE_GetRootHandle(JSContext* aCx, JSObject** aHandleP)
++{
++    TestShellParent* tsp = GetOrCreateTestShellParent();
++    return tsp && tsp->GetRootHandle(aCx, aHandleP);
+ }
+ 
+ bool
  XRE_ShutdownTestShell()
  {
    if (!gTestShellParent)
      return true;
    return ContentProcessParent::GetSingleton()->DestroyTestShell(gTestShellParent);
- }
- 
- #ifdef MOZ_X11
 diff --git a/xpcom/build/nsXULAppAPI.h b/xpcom/build/nsXULAppAPI.h
 --- a/xpcom/build/nsXULAppAPI.h
 +++ b/xpcom/build/nsXULAppAPI.h
@@ -1195,8 +1342,8 @@ diff --git a/xpcom/build/nsXULAppAPI.h b/xpcom/build/nsXULAppAPI.h
 +                                   JSObject** aGlobalP))
 +
 +XRE_API(bool,
-+        XRE_CreateHandle, (JSContext* aCx,
-+                           JSObject** aHandleP))
++        XRE_GetRootHandle, (JSContext* aCx,
++                            JSObject** aHandleP))
  
  XRE_API(bool,
          XRE_ShutdownTestShell, ())
